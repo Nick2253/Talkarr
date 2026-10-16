@@ -31,13 +31,16 @@ AD_PATTERNS = [
 AD_RE = re.compile("|".join(AD_PATTERNS), re.IGNORECASE)
 
 MOJIBAKE_PATTERNS = [
-    r"Ã¡", r"Ã©", r"Ã­", r"Ã³", r"Ãº",
-    r"Ã±", r"Ã¼", r"Ã¶", r"Ã¤", r"Ã",
-    r"â€™", r"â€œ", r"â€\x9d", r"â€"", r"â€"",
-    r"Â", r"Ã", r"Å",
+    "Ã¡", "Ã©", "Ã­",
+    "Ã³", "Ãº", "Ã±",
+    "Ã¼", "Ã¶", "Ã¤",
+    "â\u0080\u0099", "â\u0080\u009c",
+    "â\u0080\u009d", "â\u0080\u0093",
+    "â\u0080\u0094",
+    "Â", "Ã", "Å",
 ]
 
-MOJIBAKE_RE = re.compile("|".join(MOJIBAKE_PATTERNS))
+MOJIBAKE_RE = re.compile("|".join(re.escape(p) for p in MOJIBAKE_PATTERNS))
 
 
 class CleanResult:
