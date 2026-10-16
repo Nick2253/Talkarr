@@ -14,7 +14,7 @@ class Config:
     DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
     DATABASE_PATH = os.environ.get("DATABASE_PATH", "/data/talkarr.db")
     BASE_URL = os.environ.get("BASE_URL", "http://talkarr:9494")
-    MEDIA_PATH = os.environ.get("MEDIA_PATH", "/data")
+    MEDIA_PATH = os.environ.get("MEDIA_PATH", "/media")
     SYNC_ENABLED = os.environ.get("SYNC_ENABLED", "true").lower() == "true"
     CLEAN_ENABLED = os.environ.get("CLEAN_ENABLED", "true").lower() == "true"
     GENERATE_ENABLED = os.environ.get("GENERATE_ENABLED", "false").lower() == "true"
