@@ -19,3 +19,4 @@ class Config:
     CLEAN_ENABLED = os.environ.get("CLEAN_ENABLED", "true").lower() == "true"
     GENERATE_ENABLED = os.environ.get("GENERATE_ENABLED", "false").lower() == "true"
     SYNC_SCORE_THRESHOLD = float(os.environ.get("SYNC_SCORE_THRESHOLD", "0.4"))
+    PATH_MAPPING = os.environ.get("PATH_MAPPING", "")

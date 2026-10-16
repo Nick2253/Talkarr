@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify, render_template_string
 from .config import Config
 from .db import (init_db, create_job, get_job, get_recent_jobs, get_stats,
                  get_job_by_subtitle, JobStatus)
+from .paths import translate_path
 from .worker import start_worker
 
 logging.basicConfig(
@@ -153,8 +154,8 @@ def process():
     if not payload:
         return jsonify({"error": "no payload"}), 400
 
-    subtitle_path = payload.get("subtitle")
-    media_path = payload.get("media")
+    subtitle_path = translate_path(payload.get("subtitle", ""))
+    media_path = translate_path(payload.get("media", ""))
     language = payload.get("language", "")
 
     if not subtitle_path:
