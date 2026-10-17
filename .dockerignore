@@ -10,3 +10,4 @@ htmlcov
 tests
 docs
 eval/runs
+.gitea

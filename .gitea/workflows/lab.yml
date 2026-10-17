@@ -1,0 +1,73 @@
+name: Lab build
+
+# Gitea only (GitHub ignores .gitea/). Builds and smoke-tests the image on the
+# Naquadah runner and pushes it to the Jethrik registry for the seastone-lab
+# stack. Releases to production still go through GitHub (.github/workflows).
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: lab-${{ gitea.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: jethrik.nkcx.net
+  IMAGE: jethrik.nkcx.net/nkcx/talkarr
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Lint and test
+        run: |
+          uv venv -q -p 3.12 .venv
+          uv pip install -q -p .venv -r requirements-dev.txt
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+          .venv/bin/python -m pytest -q --cov --cov-fail-under=85
+
+      # Naquadah's Docker daemon can't reach Jethrik (ipvlan host isolation), so
+      # BuildKit runs as a container on traefik_proxy and does the push itself.
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=traefik_proxy
+
+      - name: Registry credentials
+        run: |
+          mkdir -p ~/.docker
+          auth=$(printf '%s:%s' "${{ vars.REGISTRY_USER }}" "${{ secrets.REGISTRY_TOKEN }}" | base64 -w0)
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "$REGISTRY" "$auth" > ~/.docker/config.json
+
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: talkarr:smoke
+
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint ffsubsync talkarr:smoke --version
+          docker run -d --name "smoke-${{ gitea.run_id }}" talkarr:smoke
+          trap 'docker rm -f "smoke-${{ gitea.run_id }}" >/dev/null' EXIT
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "smoke-${{ gitea.run_id }}")
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 2
+          done
+          docker logs "smoke-${{ gitea.run_id }}"
+          exit 1
+
+      - name: Push lab image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:lab
+            ${{ env.IMAGE }}:sha-${{ gitea.sha }}
