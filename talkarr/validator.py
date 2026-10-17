@@ -3,6 +3,7 @@ import os
 
 import pysrt
 
+from .cleaner import decode_subtitle
 from .db import SubType
 
 log = logging.getLogger(__name__)
@@ -42,13 +43,15 @@ def validate(subtitle_path, sub_type, sync_confidence=None):
         return result
 
     try:
-        subs = pysrt.open(subtitle_path, encoding="utf-8")
-    except Exception:
-        try:
-            subs = pysrt.open(subtitle_path)
-        except Exception as e:
-            result.add_issue(f"Cannot parse subtitle: {e}")
-            return result
+        with open(subtitle_path, "rb") as f:
+            raw = f.read()
+        decoded = decode_subtitle(raw.removeprefix(b"\xef\xbb\xbf"))
+        if decoded is None:
+            raise ValueError("unknown text encoding")
+        subs = pysrt.from_string(decoded[0])
+    except Exception as e:  # noqa: BLE001 - any parse failure is a validation issue
+        result.add_issue(f"Cannot parse subtitle: {e}")
+        return result
 
     cue_count = len(subs)
     if cue_count == 0:
@@ -61,23 +64,24 @@ def validate(subtitle_path, sub_type, sync_confidence=None):
     _check_mislabel(result, cue_count, sub_type)
 
     if sync_confidence is not None and sync_confidence < 0.4:
-        result.add_warning(
-            f"Low sync confidence: {sync_confidence:.2f}", penalty=0.2)
+        result.add_warning(f"Low sync confidence: {sync_confidence:.2f}", penalty=0.2)
 
-    log.info("Validated %s: score=%.2f, issues=%d, warnings=%d",
-             os.path.basename(subtitle_path), result.score,
-             len(result.issues), len(result.warnings))
+    log.info(
+        "Validated %s: score=%.2f, issues=%d, warnings=%d",
+        os.path.basename(subtitle_path),
+        result.score,
+        len(result.issues),
+        len(result.warnings),
+    )
 
     return result
 
 
 def _check_cue_count(result, count, sub_type):
     if sub_type == SubType.FORCED and count > FORCED_MAX_CUES:
-        result.add_warning(
-            f"Forced sub has {count} cues (expected <{FORCED_MAX_CUES})")
+        result.add_warning(f"Forced sub has {count} cues (expected <{FORCED_MAX_CUES})")
     elif sub_type == SubType.REGULAR and count < REGULAR_MIN_CUES:
-        result.add_warning(
-            f"Regular sub has only {count} cues (expected >{REGULAR_MIN_CUES})")
+        result.add_warning(f"Regular sub has only {count} cues (expected >{REGULAR_MIN_CUES})")
 
 
 def _check_durations(result, subs):
@@ -109,22 +113,21 @@ def _check_gaps(result, subs, sub_type):
 
     if big_gaps > 3:
         result.add_warning(
-            f"{big_gaps} gaps longer than {MAX_GAP_REGULAR_MS // 1000}s "
-            f"in regular subtitle")
+            f"{big_gaps} gaps longer than {MAX_GAP_REGULAR_MS // 1000}s in regular subtitle"
+        )
 
 
 def _check_mislabel(result, cue_count, sub_type):
     if sub_type == SubType.FORCED and cue_count > 200:
         result.add_issue(
-            f"Likely mislabeled: {cue_count} cues in forced sub "
-            f"(probably a regular sub)")
+            f"Likely mislabeled: {cue_count} cues in forced sub (probably a regular sub)"
+        )
     elif sub_type == SubType.REGULAR and cue_count < 5:
-        result.add_warning(
-            f"Suspiciously few cues ({cue_count}) for a regular subtitle")
+        result.add_warning(f"Suspiciously few cues ({cue_count}) for a regular subtitle")
 
 
 def _duration_ms(sub):
-    return (_time_ms(sub.end) - _time_ms(sub.start))
+    return _time_ms(sub.end) - _time_ms(sub.start)
 
 
 def _start_ms(sub):

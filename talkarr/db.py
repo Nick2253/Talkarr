@@ -1,7 +1,7 @@
-import sqlite3
-import time
 import json
+import sqlite3
 import threading
+import time
 
 from .config import Config
 
@@ -68,23 +68,25 @@ def create_job(job_id, subtitle_path, media_path, language, source="bazarr"):
             "INSERT INTO jobs (id, subtitle_path, media_path, language, "
             "source, status, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (job_id, subtitle_path, media_path, language, source,
-             JobStatus.PENDING, now, now),
+            (job_id, subtitle_path, media_path, language, source, JobStatus.PENDING, now, now),
         )
         db.commit()
 
 
 def get_job(job_id):
-    row = get_db().execute("SELECT * FROM jobs WHERE id = ?",
-                           (job_id,)).fetchone()
+    row = get_db().execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return dict(row) if row else None
 
 
 def get_jobs_by_status(status):
-    rows = get_db().execute(
-        "SELECT * FROM jobs WHERE status = ? ORDER BY created_at",
-        (status,),
-    ).fetchall()
+    rows = (
+        get_db()
+        .execute(
+            "SELECT * FROM jobs WHERE status = ? ORDER BY created_at",
+            (status,),
+        )
+        .fetchall()
+    )
     return [dict(r) for r in rows]
 
 
@@ -93,8 +95,7 @@ def update_job_status(job_id, status, error=None):
     with get_db() as db:
         if error:
             db.execute(
-                "UPDATE jobs SET status = ?, error = ?, updated_at = ? "
-                "WHERE id = ?",
+                "UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?",
                 (status, error, now, job_id),
             )
         else:
@@ -119,8 +120,7 @@ def update_job_sync(job_id, offset, confidence):
     now = time.time()
     with get_db() as db:
         db.execute(
-            "UPDATE jobs SET sync_offset = ?, sync_confidence = ?, "
-            "updated_at = ? WHERE id = ?",
+            "UPDATE jobs SET sync_offset = ?, sync_confidence = ?, updated_at = ? WHERE id = ?",
             (offset, confidence, now, job_id),
         )
         db.commit()
@@ -132,8 +132,7 @@ def update_job_validation(job_id, score, notes):
         db.execute(
             "UPDATE jobs SET validation_score = ?, validation_notes = ?, "
             "updated_at = ? WHERE id = ?",
-            (score, json.dumps(notes) if isinstance(notes, (list, dict))
-             else notes, now, job_id),
+            (score, json.dumps(notes) if isinstance(notes, (list, dict)) else notes, now, job_id),
         )
         db.commit()
 
@@ -149,26 +148,27 @@ def update_job_actions(job_id, actions):
 
 
 def get_recent_jobs(limit=50):
-    rows = get_db().execute(
-        "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+    rows = (
+        get_db().execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    )
     return [dict(r) for r in rows]
 
 
 def get_job_by_subtitle(subtitle_path):
-    row = get_db().execute(
-        "SELECT * FROM jobs WHERE subtitle_path = ? "
-        "ORDER BY created_at DESC LIMIT 1",
-        (subtitle_path,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT * FROM jobs WHERE subtitle_path = ? ORDER BY created_at DESC LIMIT 1",
+            (subtitle_path,),
+        )
+        .fetchone()
+    )
     return dict(row) if row else None
 
 
 def get_stats():
     db = get_db()
-    rows = db.execute(
-        "SELECT status, COUNT(*) as count FROM jobs GROUP BY status"
-    ).fetchall()
+    rows = db.execute("SELECT status, COUNT(*) as count FROM jobs GROUP BY status").fetchall()
     stats = {r["status"]: r["count"] for r in rows}
     total = db.execute("SELECT COUNT(*) as count FROM jobs").fetchone()
     stats["total"] = total["count"]

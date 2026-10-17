@@ -34,12 +34,10 @@ def classify(subtitle_path, language_tag=None):
     if language_tag:
         tag = language_tag.lower()
         if ":forced" in tag or ":foreign" in tag:
-            log.info("Classified %s as forced (language tag: %s)",
-                     basename, language_tag)
+            log.info("Classified %s as forced (language tag: %s)", basename, language_tag)
             return SubType.FORCED
         if ":hi" in tag or ":sdh" in tag:
-            log.info("Classified %s as HI (language tag: %s)",
-                     basename, language_tag)
+            log.info("Classified %s as HI (language tag: %s)", basename, language_tag)
             return SubType.HI
 
     if FORCED_RE.search(basename):

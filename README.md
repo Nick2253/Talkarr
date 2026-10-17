@@ -1,25 +1,26 @@
 # Talkarr
 
-Subtitle post-processor that sits alongside Bazarr. Handles everything Bazarr doesn't: sync, validation, cleaning, and forced subtitle generation.
+Subtitle clean-up tool for an existing media library, designed to sit alongside Bazarr (but not require it). It validates, syncs, and cleans the subtitles you already have, with a focus on the ones nothing else handles well: **forced subtitles**. Talkarr never generates subtitles.
 
 ## What it does
 
 - **Sync** — Aligns subtitle timing to audio via ffsubsync. Skips forced subs (sparse cues would be destroyed by VAD-based sync).
 - **Clean** — Strips ad watermarks, fixes encoding/mojibake, removes BOM.
 - **Validate** — Checks cue density, duration sanity, mislabel detection (200-cue "forced" sub = mislabeled regular sub). Blacklists bad subs via Bazarr API and triggers re-search.
-- **Generate** — Creates forced subtitles for foreign-language dialogue using Whisper (language detection → translation → SRT). Requires a Whisper-compatible API endpoint.
+- **Forced-subtitle verification & sync** *(in development)*: detects the non-English speech in the audio, translates it, and uses it as timed anchors to check that a forced subtitle belongs to this release, and to re-time it. It also detects full subtitles mislabelled as forced. See [docs/PLAN.md](docs/PLAN.md).
 
 ## How it integrates
 
-Bazarr downloads subtitles from providers. After each download, Bazarr's Custom Post-Processing sends a webhook to Talkarr:
+Bazarr downloads subtitles from providers; its Custom Post-Processing can notify Talkarr about each new subtitle (`POST /process`). Library-wide clean-up runs through `POST /bulk`.
 
-```
-curl -s -X POST http://talkarr:9494/process \
-  -H "Content-Type: application/json" \
-  -d '{"subtitle":"{{subtitles}}","media":"{{episode}}{{movie}}","language":"{{subtitles_language}}"}'
-```
+> **Note:** the Bazarr hook command needs care: Bazarr only substitutes placeholders that are a whole argument, so the usual `curl -d '{"subtitle":"{{subtitles}}"}'` form sends literal braces. See [docs/PLAN.md](docs/PLAN.md), Appendix A, for a working command. Disable Bazarr's own auto-sync, or it will destroy forced subs before Talkarr sees them.
 
-Talkarr classifies, cleans, syncs, and validates the subtitle. Failed subs are blacklisted and re-searched automatically.
+## Development
+
+```bash
+uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
+.venv/bin/ruff check . && .venv/bin/python -m pytest --cov
+```
 
 ## Configuration
 
@@ -37,10 +38,9 @@ Talkarr classifies, cleans, syncs, and validates the subtitle. Failed subs are b
 | `DISCORD_WEBHOOK_URL` | | Discord webhook for notifications |
 | `DATABASE_PATH` | `/data/talkarr.db` | SQLite database path |
 | `BASE_URL` | `http://talkarr:9494` | External URL for dashboard links |
-| `MEDIA_PATH` | `/data` | Media root for bulk scans |
+| `MEDIA_PATH` | `/media` | Media root for bulk scans |
 | `SYNC_ENABLED` | `true` | Enable ffsubsync |
 | `CLEAN_ENABLED` | `true` | Enable ad/encoding cleaning |
-| `GENERATE_ENABLED` | `false` | Enable forced sub generation |
 
 ## Endpoints
 

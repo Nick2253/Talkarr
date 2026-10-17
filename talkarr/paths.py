@@ -17,8 +17,8 @@ def _parse_mappings():
     if not raw:
         return _mappings
 
-    for pair in raw.split("|"):
-        pair = pair.strip()
+    for entry in raw.split("|"):
+        pair = entry.strip()
         if ":" not in pair:
             continue
         src, dst = pair.split(":", 1)
@@ -40,8 +40,8 @@ def translate_path(path):
         return path
 
     for src, dst in _parse_mappings():
-        if path.startswith(src):
-            translated = dst + path[len(src):]
-            return translated
+        # Match whole path segments only: "/data" must not match "/database".
+        if path == src or path.startswith(src + "/"):
+            return dst + path[len(src) :]
 
     return path

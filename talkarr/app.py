@@ -1,13 +1,11 @@
-import json
 import logging
 import os
 import uuid
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 from .config import Config
-from .db import (init_db, create_job, get_job, get_recent_jobs, get_stats,
-                 get_job_by_subtitle, JobStatus)
+from .db import JobStatus, create_job, get_job_by_subtitle, get_recent_jobs, get_stats, init_db
 from .paths import translate_path
 from .worker import start_worker
 
@@ -162,8 +160,12 @@ def process():
         return jsonify({"error": "missing subtitle path"}), 400
 
     existing = get_job_by_subtitle(subtitle_path)
-    if existing and existing["status"] in (JobStatus.PENDING, JobStatus.SYNCING,
-                                           JobStatus.CLEANING, JobStatus.VALIDATING):
+    if existing and existing["status"] in (
+        JobStatus.PENDING,
+        JobStatus.SYNCING,
+        JobStatus.CLEANING,
+        JobStatus.VALIDATING,
+    ):
         log.info("Duplicate request for %s — ignoring", subtitle_path)
         return jsonify({"status": "duplicate", "job_id": existing["id"]})
 
@@ -195,14 +197,15 @@ def bulk_scan():
 
             subtitle_path = os.path.join(root, f)
 
-            if sub_filter == "forced" and ".forced." not in f.lower():
-                continue
-            elif sub_filter == "regular" and (".forced." in f.lower() or
-                                              ".hi." in f.lower() or
-                                              ".sdh." in f.lower()):
-                continue
-            elif sub_filter == "hi" and ".hi." not in f.lower() and \
-                    ".sdh." not in f.lower():
+            if (
+                sub_filter == "forced"
+                and ".forced." not in f.lower()
+                or sub_filter == "regular"
+                and (".forced." in f.lower() or ".hi." in f.lower() or ".sdh." in f.lower())
+                or sub_filter == "hi"
+                and ".hi." not in f.lower()
+                and ".sdh." not in f.lower()
+            ):
                 continue
 
             media_path = _find_media_for_subtitle(subtitle_path)
@@ -215,12 +218,10 @@ def bulk_scan():
 
             job_id = str(uuid.uuid4())[:8]
             language = _extract_language(f)
-            create_job(job_id, subtitle_path, media_path, language,
-                       source="bulk")
+            create_job(job_id, subtitle_path, media_path, language, source="bulk")
             count += 1
 
-    log.info("Bulk scan queued %d subtitles from %s (filter=%s)",
-             count, directory, sub_filter)
+    log.info("Bulk scan queued %d subtitles from %s (filter=%s)", count, directory, sub_filter)
     return jsonify({"status": "queued", "count": count})
 
 
@@ -235,25 +236,33 @@ def stats():
     return jsonify(get_stats())
 
 
+VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".m4v", ".ts")
+
+
 def _find_media_for_subtitle(subtitle_path):
-    """Find the media file that corresponds to a subtitle file."""
+    """Find the video a sidecar subtitle belongs to.
+
+    ``Movie.Name.2020.en.forced.srt`` belongs to ``Movie.Name.2020.<ext>``:
+    strip trailing dot-separated parts one at a time until a video with that
+    stem exists. Only if no stem matches and the folder holds exactly one
+    video is that video used; guessing in a season folder would sync one
+    episode's subtitles against another episode.
+    """
     directory = os.path.dirname(subtitle_path)
-    sub_base = os.path.basename(subtitle_path)
+    stem = os.path.splitext(os.path.basename(subtitle_path))[0]
 
-    parts = sub_base.split(".")
-    if len(parts) >= 3:
-        media_stem = parts[0]
-    else:
-        media_stem = os.path.splitext(sub_base)[0]
+    while stem:
+        for ext in VIDEO_EXTENSIONS:
+            candidate = os.path.join(directory, stem + ext)
+            if os.path.isfile(candidate):
+                return candidate
+        if "." not in stem:
+            break
+        stem = stem.rsplit(".", 1)[0]
 
-    for ext in (".mkv", ".mp4", ".avi", ".m4v", ".ts"):
-        candidate = os.path.join(directory, media_stem + ext)
-        if os.path.isfile(candidate):
-            return candidate
-
-    for f in os.listdir(directory):
-        if f.endswith((".mkv", ".mp4", ".avi", ".m4v", ".ts")):
-            return os.path.join(directory, f)
+    videos = [f for f in os.listdir(directory) if f.lower().endswith(VIDEO_EXTENSIONS)]
+    if len(videos) == 1:
+        return os.path.join(directory, videos[0])
 
     return None
 

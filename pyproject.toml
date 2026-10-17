@@ -1,0 +1,42 @@
+[project]
+name = "talkarr"
+version = "0.2.0"
+description = "Subtitle post-processor for Bazarr: forced subtitle generation, sync, cleaning, validation"
+requires-python = ">=3.12"
+readme = "README.md"
+
+# Runtime dependencies are pinned in requirements.txt (used by the Docker image);
+# development tools in requirements-dev.txt.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "BLE", "PLW"]
+ignore = [
+    "PLW0603",  # module-level caches (paths._mappings) use `global` deliberately
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["BLE", "PLW", "SIM115"]
+"talkarr/app.py" = ["E501"]  # embedded dashboard HTML
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "ignore::requests.exceptions.RequestsDependencyWarning",
+]
+markers = [
+    "integration: needs external tools (ffmpeg/ffsubsync) or network services",
+]
+
+[tool.coverage.run]
+source = ["talkarr"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
