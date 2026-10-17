@@ -12,6 +12,7 @@ from ..forced import subtitles as S
 from ..forced.verify import Verdict, verify
 from .library import find_items
 from .perturb import cases, repair_error
+from .refsync import synced_reference
 
 # Films whose forced sub agrees this well with the full sub become perturbation corpus.
 CORPUS_MIN_INLIERS = 5
@@ -31,6 +32,12 @@ def main(argv=None):
         default=os.environ.get("TALKARR_LAB_DIR", ""),
         help="directory for the JSON result (default: $TALKARR_LAB_DIR)",
     )
+    parser.add_argument(
+        "--sync-reference",
+        action="store_true",
+        help="align each full subtitle to its video with ffsubsync before judging "
+        "(cached under <out>/cache/refsync); only for films the text path can anchor",
+    )
     args = parser.parse_args(argv)
 
     started = time.monotonic()
@@ -42,7 +49,12 @@ def main(argv=None):
         f"({sum(1 for i in items if i.reference)} with a full English subtitle)\n"
     )
 
-    sweep_rows = run_sweep(items, limit=args.limit if args.command == "sweep" else 0)
+    cache = os.path.join(args.out or "/tmp/talkarr-eval", "cache", "refsync")
+    sweep_rows = run_sweep(
+        items,
+        limit=args.limit if args.command == "sweep" else 0,
+        sync_cache=cache if args.sync_reference else None,
+    )
     if args.command == "sweep":
         result = {"command": "sweep", "rows": sweep_rows}
         print_sweep(sweep_rows)
@@ -61,17 +73,29 @@ def main(argv=None):
 # --- sweep -------------------------------------------------------------------------
 
 
-def run_sweep(items, limit=0):
+# Verdicts that depend on the reference's timing, so are re-judged after syncing it.
+TIMING_VERDICTS = {Verdict.IN_SYNC, Verdict.RETIMED, Verdict.MISMATCH}
+
+
+def run_sweep(items, limit=0, sync_cache=None):
     rows = []
     for item in items[: limit or None]:
         row = {"title": item.title, "forced": item.forced, "reference": item.reference}
         try:
             forced = S.load(item.forced)
             reference = S.load(item.reference) if item.reference else None
-            row.update(verify(forced, reference).as_dict())
+            report = verify(forced, reference)
+            if sync_cache and report.verdict in TIMING_VERDICTS:
+                synced, info = synced_reference(item, sync_cache)
+                row["reference_sync"] = info
+                row["unsynced_verdict"] = str(report.verdict)
+                if synced is not None:
+                    report = verify(forced, synced)
+            row.update(report.as_dict())
         except Exception as e:  # noqa: BLE001 - one bad file must not stop a sweep
             row.update(verdict="error", reason=f"{type(e).__name__}: {e}")
         rows.append(row)
+        print(f"  {row['verdict']:12s} {item.title}", flush=True)
     return rows
 
 
@@ -80,13 +104,22 @@ def print_sweep(rows):
     print("| verdict | films |\n|---|---|")
     for verdict, n in counts.most_common():
         print(f"| {verdict} | {n} |")
-    for verdict in ("retimed", "mismatch", "unverifiable", "error"):
+    for verdict in ("retimed", "mismatch", "in_sync", "unverifiable", "error"):
         selected = [r for r in rows if r["verdict"] == verdict]
         if not selected:
             continue
         print(f"\n### {verdict}\n")
         for r in selected:
-            print(f"- {r['title']}: {r['reason']}")
+            flag = " **[review]**" if r.get("review") else ""
+            sync = r.get("reference_sync")
+            note = ""
+            if sync:
+                note = (
+                    f" (full sub ffsubsync offset {sync['offset']:+.2f}s)"
+                    if sync.get("ok") and sync.get("offset") is not None
+                    else f" (full sub sync failed: {sync.get('error')})"
+                )
+            print(f"- {r['title']}: {r['reason']}{flag}{note}")
 
 
 # --- perturb -----------------------------------------------------------------------
@@ -122,7 +155,7 @@ def run_perturb(items, sweep_rows, limit=0):
                 "verdict": str(report.verdict),
                 "reason": report.reason,
             }
-            ok = report.verdict == case.expected
+            ok = report.verdict == case.expected or report.verdict in case.also_ok
             if ok and case.expected == Verdict.RETIMED:
                 errors = repair_error(case, report, forced)
                 row["max_error"] = round(max(errors), 3) if errors else None

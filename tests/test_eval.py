@@ -99,3 +99,59 @@ def test_title_filter_and_bad_files(library, capsys):
     assert main(["sweep", "--root", str(library / "movies"), "--title", "alpha"]) == 0
     printed = capsys.readouterr().out
     assert "1 English forced subtitles" in printed
+
+
+def test_sweep_with_reference_sync_uses_synced_reference(library, tmp_path, monkeypatch, capsys):
+    """The synced full subtitle (here: shifted 3 s by a fake ffsubsync) is what the
+    forced subtitle is judged against; results are cached across runs."""
+    from talkarr.eval import refsync
+
+    calls = []
+
+    def fake_ffsubsync(subtitle_path, media_path, output_path, **_):
+        calls.append(subtitle_path)
+        shifted = S.transform(S.load(subtitle_path), offset=3.0)
+        with open(output_path, "w") as f:
+            f.write(S.compose(shifted))
+        from types import SimpleNamespace
+
+        return SimpleNamespace(success=True, offset=3.0, framerate=1.0, score=1.0, error=None)
+
+    monkeypatch.setattr(refsync, "run_ffsubsync", fake_ffsubsync)
+    out = tmp_path / "lab"
+    args = ["sweep", "--root", str(library / "movies"), "--out", str(out), "--sync-reference"]
+
+    assert main(args) == 0
+    printed = capsys.readouterr().out
+    assert "| retimed | 2 |" in printed
+    assert "full sub ffsubsync offset +3.00s" in printed
+    assert len(calls) == 2
+
+    assert main(args) == 0  # second run: served from cache
+    assert len(calls) == 2
+
+
+def test_reference_sync_failure_keeps_unsynced_verdict(library, tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from talkarr.eval import refsync
+
+    monkeypatch.setattr(
+        refsync,
+        "run_ffsubsync",
+        lambda *a, **k: SimpleNamespace(
+            success=False, offset=None, framerate=None, score=None, error="no audio"
+        ),
+    )
+    args = [
+        "sweep",
+        "--root",
+        str(library / "movies"),
+        "--out",
+        str(tmp_path / "lab"),
+        "--sync-reference",
+    ]
+    assert main(args) == 0
+    printed = capsys.readouterr().out
+    assert "| in_sync | 2 |" in printed
+    assert "full sub sync failed: no audio" in printed

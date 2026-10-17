@@ -13,6 +13,8 @@ class Case:
     name: str
     cues: list
     expected: Verdict
+    # Other verdicts that also count as a pass (e.g. "can't tell" for a wrong sub).
+    also_ok: tuple = ()
     # For retime cases: the transform that broke it (to check the repair).
     scale: float = 1.0
     offset: float = 0.0
@@ -41,14 +43,22 @@ def cases(forced, reference, other_forced=None, seed=0):
 
     out.append(Case("full subtitle labelled forced", reference, Verdict.MISLABELLED))
     if other_forced:
-        out.append(Case("another film's forced sub", other_forced, Verdict.MISMATCH))
+        # The text path can't prove a subtitle is wrong (only that its lines are
+        # missing); what matters is that it is never accepted or "fixed".
+        out.append(
+            Case(
+                "another film's forced sub",
+                other_forced,
+                Verdict.MISMATCH,
+                also_ok=(Verdict.UNVERIFIABLE,),
+            )
+        )
     return out
 
 
 def _retime(name, forced, scale, offset):
-    return Case(
-        name, S.transform(forced, scale=scale, offset=offset), Verdict.RETIMED, scale, offset
-    )
+    broken = S.transform(forced, scale=scale, offset=offset)
+    return Case(name, broken, Verdict.RETIMED, scale=scale, offset=offset)
 
 
 def repair_error(case, report, original):

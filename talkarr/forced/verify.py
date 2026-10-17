@@ -21,9 +21,18 @@ MISLABEL_REFERENCE_SHARE = 0.5
 # and at least MIN_INLIERS cues.
 MIN_COVERAGE = 0.6
 MIN_INLIERS = 3
-# Share of (anchorable) forced lines that must be found in the reference before
-# their absence means "wrong subtitle" rather than "can't tell".
+# Share of (anchorable) forced lines that must be found in the reference for the
+# text path to say anything; below it the reference likely doesn't translate the
+# foreign dialogue, and only the audio path can tell.
 MIN_FOUND_SHARE = 0.3
+# A "forced" subtitle with at least this many cues that reproduces most of the
+# full subtitle's cues *within its own time span* is a section of a full subtitle.
+SECTION_MIN_CUES = 50
+SECTION_MIN_WINDOW_CUES = 20
+SECTION_SHARE = 0.5
+# Retimes beyond this offset, or with a framerate change, are plausible (other
+# release/cut) but are flagged for review rather than trusted blindly.
+REVIEW_OFFSET = 30.0
 # Lines shorter than this (normalised characters) aren't counted when judging
 # whether forced lines are missing from the reference.
 SPECIFIC_LINE_CHARS = 12
@@ -49,6 +58,7 @@ class Report:
     scale: float = 1.0
     offset: float = 0.0
     residual_p90: float = 0.0
+    review: bool = False  # verdict is plausible but should be confirmed before acting
     details: dict = field(default_factory=dict)
 
     def as_dict(self):
@@ -98,19 +108,32 @@ def verify(forced, reference=None):
         report.residual_p90 = round(fit.residual_p90, 3)
 
     if fit is not None and fit.inlier_count >= MIN_INLIERS and report.coverage >= MIN_COVERAGE:
+        section = _section_share(fit, reference)
+        if n >= SECTION_MIN_CUES and section is not None and section >= SECTION_SHARE:
+            report.verdict = Verdict.MISLABELLED
+            report.reason = (
+                f"{n} cues reproducing {section:.0%} of the full subtitle within their time "
+                "span: a section of a full subtitle labelled as forced"
+            )
+            return report
         if fit.is_identity:
             report.verdict = Verdict.IN_SYNC
             report.reason = f"{fit.inlier_count} lines line up with the full subtitle"
-        else:
-            report.verdict = Verdict.RETIMED
-            report.reason = (
-                f"{fit.inlier_count} lines line up after scale {fit.scale:.5f}, "
-                f"offset {fit.offset:+.2f}s"
-            )
+            return report
+        report.verdict = Verdict.RETIMED
+        report.reason = (
+            f"{fit.inlier_count} lines line up after scale {fit.scale:.5f}, "
+            f"offset {fit.offset:+.2f}s"
+        )
+        mapped = [fit.apply(c.start) for c in forced]
+        if abs(fit.offset) > REVIEW_OFFSET or fit.scale != 1.0:
+            report.review = True
+            report.reason += " (large offset or framerate change: review)"
+        elif min(mapped) < 0 or max(mapped) > reference[-1].end + REVIEW_OFFSET:
+            report.review = True
+            report.reason += " (retimed cues fall outside the film: review)"
         return report
 
-    # No consistent fit. Missing lines only prove a mismatch when the reference
-    # actually translates foreign dialogue and the forced lines are specific.
     if has_foreign_annotations(reference):
         report.reason = "full subtitle describes foreign speech instead of translating it"
         return report
@@ -120,16 +143,32 @@ def verify(forced, reference=None):
     report.details["specific_lines"] = len(specific)
     report.details["specific_found"] = len(found)
     if len(specific) >= MIN_INLIERS and len(found) < MIN_FOUND_SHARE * len(specific):
-        report.verdict = Verdict.MISMATCH
+        # Absent lines are not evidence of a wrong subtitle: many full subtitles
+        # simply don't translate foreign dialogue. Only audio can decide.
         report.reason = (
-            f"only {len(found)} of {len(specific)} forced lines appear in the full subtitle"
+            f"only {len(found)} of {len(specific)} forced lines appear in the full subtitle "
+            "(it may not translate the foreign dialogue)"
         )
-    elif fit is not None and fit.inlier_count >= MIN_INLIERS:
+    elif len(anchored) >= MIN_INLIERS:
+        # The lines are there, but no single offset/framerate explains them:
+        # another cut (scenes added/removed) or a scrambled file. Flag, don't fix.
+        best = fit.inlier_count if fit is not None else 0
         report.verdict = Verdict.MISMATCH
+        report.review = True
         report.reason = (
             f"forced lines found in the full subtitle but timings disagree "
-            f"(best fit explains {fit.inlier_count}/{len(anchored)})"
+            f"(best fit explains {best}/{len(anchored)})"
         )
     else:
         report.reason = "too few forced lines to anchor on"
     return report
+
+
+def _section_share(fit, reference):
+    """Share of the reference cues inside the fitted forced span that are inliers."""
+    times = [a.reference_time for a in fit.inliers]
+    lo, hi = min(times), max(times)
+    window = sum(1 for c in reference if lo <= c.start <= hi)
+    if window < SECTION_MIN_WINDOW_CUES:
+        return None
+    return fit.inlier_count / window

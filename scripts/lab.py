@@ -54,6 +54,7 @@ def main():
     parser.add_argument("--no-pull", action="store_true", help="don't pull the :lab image first")
     parser.add_argument("--timeout", type=int, default=6 * 3600, help="seconds to wait")
     parser.add_argument("-e", "--env", action="append", default=[], help="KEY=VALUE for the run")
+    parser.add_argument("--user", help="run as this user (e.g. 0 for one-off maintenance)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -67,6 +68,8 @@ def main():
     }
     if args.command:
         params["command"] = args.command
+    if args.user:
+        params["user"] = args.user
 
     update = komodo.call("execute", "RunStackService", params)
     update_id = update.get("_id", {}).get("$oid")

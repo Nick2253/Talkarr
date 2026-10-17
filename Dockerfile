@@ -25,7 +25,7 @@ COPY wsgi.py .
 # UID/GID match the seastone media stack (PUID/PGID) so files Talkarr rewrites
 # keep the library's ownership. The data dir is created with that owner so a
 # fresh named volume inherits it.
-RUN mkdir -p /data && chown 23611:21105 /data
+RUN mkdir -p /data /lab && chown 23611:21105 /data /lab
 USER 23611:21105
 
 ENV PYTHONUNBUFFERED=1

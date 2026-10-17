@@ -6,6 +6,7 @@ from flask import Flask, jsonify, render_template_string, request
 
 from .config import Config
 from .db import JobStatus, create_job, get_job_by_subtitle, get_recent_jobs, get_stats, init_db
+from .media import find_video_for_subtitle as _find_media_for_subtitle
 from .paths import translate_path
 from .worker import start_worker
 
@@ -234,37 +235,6 @@ def list_jobs():
 @app.route("/stats")
 def stats():
     return jsonify(get_stats())
-
-
-VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".m4v", ".ts")
-
-
-def _find_media_for_subtitle(subtitle_path):
-    """Find the video a sidecar subtitle belongs to.
-
-    ``Movie.Name.2020.en.forced.srt`` belongs to ``Movie.Name.2020.<ext>``:
-    strip trailing dot-separated parts one at a time until a video with that
-    stem exists. Only if no stem matches and the folder holds exactly one
-    video is that video used; guessing in a season folder would sync one
-    episode's subtitles against another episode.
-    """
-    directory = os.path.dirname(subtitle_path)
-    stem = os.path.splitext(os.path.basename(subtitle_path))[0]
-
-    while stem:
-        for ext in VIDEO_EXTENSIONS:
-            candidate = os.path.join(directory, stem + ext)
-            if os.path.isfile(candidate):
-                return candidate
-        if "." not in stem:
-            break
-        stem = stem.rsplit(".", 1)[0]
-
-    videos = [f for f in os.listdir(directory) if f.lower().endswith(VIDEO_EXTENSIONS)]
-    if len(videos) == 1:
-        return os.path.join(directory, videos[0])
-
-    return None
 
 
 def _extract_language(filename):

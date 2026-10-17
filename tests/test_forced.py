@@ -190,11 +190,39 @@ def test_cues_without_text_anchor_move_with_the_fit(film):
     assert report.offset == pytest.approx(-4.0, abs=0.01)
 
 
-def test_another_films_forced_sub_is_a_mismatch(film):
+def test_lines_missing_from_reference_are_unverifiable_not_wrong(film):
+    """Another film's forced sub and a full sub that doesn't translate foreign
+    dialogue look the same to the text path; it must not claim either is wrong."""
     full, _ = film
     rng = random.Random(99)
     other = [Cue(100 + 60 * i, 102 + 60 * i, f"Zebra {sentence(rng)} quartz") for i in range(20)]
-    assert verify(other, full).verdict == Verdict.MISMATCH
+    report = verify(other, full)
+    assert report.verdict == Verdict.UNVERIFIABLE
+    assert "may not translate" in report.reason
+
+
+def test_conflicting_timings_are_a_mismatch(film):
+    full, forced = film
+    # Each line found in the reference, but at unrelated times: no consistent fit.
+    rng = random.Random(5)
+    scrambled = [Cue(c.start + rng.uniform(-900, 900), c.end, c.text) for c in forced]
+    scrambled = [Cue(max(0, c.start), max(0, c.start) + 2, c.text) for c in scrambled]
+    assert verify(scrambled, full).verdict == Verdict.MISMATCH
+
+
+def test_section_of_full_subtitle_is_mislabelled(film):
+    full, _ = film
+    section = full[100:180]  # 80 consecutive dialogue lines
+    report = verify(section, full)
+    assert report.verdict == Verdict.MISLABELLED
+    assert "section" in report.reason
+
+
+def test_large_offsets_and_framerate_changes_need_review(film):
+    full, forced = film
+    assert not verify(S.transform(forced, offset=5), full).review
+    assert verify(S.transform(forced, offset=-120), full).review
+    assert verify(S.transform(forced, scale=23.976 / 25), full).review
 
 
 def test_full_subtitle_labelled_forced(film):
