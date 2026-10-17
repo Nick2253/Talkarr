@@ -225,6 +225,28 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
 - `talkarr-ml` (Silero VAD + VoxLingua107, CPU, capped at 4 CPUs / 4 GB) is built on the Gitea
   runner and deployed to eezo as stack `talkarr-ml`. DNS requested in infrastructure/dns#13.
 
+**2026-10-16, audio path on the corpus (10 films, audio alone, no full subtitle used).**
+- First run (placed-count fit): 124/160. Good on films with many forced cues, but on
+  films with few cues (MI3: 9, Live Free or Die Hard: 6) chance alignments against
+  hundreds of partly false foreign spans produced wrong retimes, and another film's
+  forced sub "fit" three films (all flagged for review, so nothing was applied blindly).
+- Fixes:
+  - **Chance baseline:** the sub's own cue pattern is moved far away and fitted the same
+    way. A placement must beat that by at least 2 cues (10 % for larger subs), or the
+    verdict is `unverifiable` ("can't tell").
+  - **Exact sweep-line coarse search**, which is also over 30× faster.
+  - **Overlap-seconds refinement** across scales, which recovers 24↔23.976 drift and
+    sub-second shifts.
+  - **Moves are justified by overlap gain:** 5 % for ≤ 2 s shifts, 20 % for bigger moves
+    and framerate changes.
+- Result: **127/160, 0 harmful** (no wrong retime, and no other film's forced sub accepted).
+  The two tiny subs (MI3, LFODH) now say "can't tell" in all 32 cases. Of the other 128
+  cases, 125 pass and 3 are conservative misses.
+- `python -m talkarr.eval audio --regions DIR` replays cached analyses offline: the whole
+  corpus runs in about 20 s.
+- Next: translation anchors (Phase 3b). They should rescue the few-cue films and give
+  content-level evidence that a subtitle belongs to the film.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

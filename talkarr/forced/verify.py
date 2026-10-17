@@ -5,6 +5,7 @@ Everything here is pure: it takes cue lists and returns a ``Report``; reading
 media, syncing the reference, and writing files are the caller's job.
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -182,10 +183,15 @@ AUDIO_MIN_PLACED_SHARE = 0.5
 # A retime must place clearly more cues than leaving the subtitle alone, or put
 # clearly more of the cue time on foreign speech.
 AUDIO_MIN_GAIN_SHARE = 0.2
-AUDIO_MIN_OVERLAP_GAIN = 0.02
+AUDIO_MIN_OVERLAP_GAIN = 0.05
+AUDIO_BIG_MOVE_OVERLAP_GAIN = 0.2
 # Subtitles conventionally start ~0.1-0.2 s before speech, so the audio fit of a good
 # subtitle sits a little off zero; smaller offsets than this are left alone.
-AUDIO_IDENTITY_OFFSET = 0.3
+AUDIO_IDENTITY_OFFSET = 0.25
+# Offsets up to this (no framerate change) count as fine adjustments.
+AUDIO_SMALL_MOVE = 2.0
+# How far a placement must exceed the decoy baseline (share of cues, at least two).
+AUDIO_CHANCE_MARGIN = 0.1
 # Below this much foreign speech the film gives the audio path nothing to hold on to
 # (e.g. forced subs that are all signs or sign language).
 AUDIO_MIN_FOREIGN_SPANS = 3
@@ -210,41 +216,56 @@ def verify_audio(forced, timeline_fit, foreign_spans):
         report.reason = "too little foreign speech in the audio to anchor on"
         return report
 
-    need = max(MIN_INLIERS, AUDIO_MIN_PLACED_SHARE * n)
-    gain = timeline_fit.placed - timeline_fit.placed_identity
+    # A placement only means something if it beats what decoy cues achieve by luck.
+    beat_chance = timeline_fit.chance + max(2, math.ceil(AUDIO_CHANCE_MARGIN * n))
+    need = max(MIN_INLIERS, AUDIO_MIN_PLACED_SHARE * n, beat_chance)
     report.inliers = timeline_fit.placed
     report.coverage = timeline_fit.placed / n
     report.scale = timeline_fit.scale
     report.offset = round(timeline_fit.offset, 3)
-    report.details["placed_unchanged"] = timeline_fit.placed_identity
+    report.details.update(
+        placed_unchanged=timeline_fit.placed_identity,
+        chance=timeline_fit.chance,
+        overlap=timeline_fit.overlap,
+        overlap_unchanged=timeline_fit.overlap_identity,
+    )
 
     moved = timeline_fit.scale != 1.0 or abs(timeline_fit.offset) > AUDIO_IDENTITY_OFFSET
-    better = timeline_fit.overlap > (1 + AUDIO_MIN_OVERLAP_GAIN) * timeline_fit.overlap_identity
-    report.details["overlap"] = timeline_fit.overlap
-    report.details["overlap_unchanged"] = timeline_fit.overlap_identity
+    small = timeline_fit.scale == 1.0 and abs(timeline_fit.offset) <= AUDIO_SMALL_MOVE
+    gain = timeline_fit.placed - timeline_fit.placed_identity
+    overlap_gain = timeline_fit.overlap / max(timeline_fit.overlap_identity, 1e-9) - 1
+    report.details["overlap_gain"] = round(overlap_gain, 3)
+    # Overlap (seconds of cue time on foreign speech) is the precise signal: placed
+    # counts barely move for sub-second shifts or gradual framerate drift. Bigger
+    # moves need proportionally stronger evidence.
+    if small:
+        justified = moved and overlap_gain >= AUDIO_MIN_OVERLAP_GAIN
+    else:
+        justified = gain >= max(2, AUDIO_MIN_GAIN_SHARE * n) or (
+            gain >= 0 and overlap_gain >= AUDIO_BIG_MOVE_OVERLAP_GAIN
+        )
 
-    if (
-        timeline_fit.placed_identity >= need
-        and not (moved and better)
-        and (gain < max(2, AUDIO_MIN_GAIN_SHARE * n))
-    ):
-        report.verdict = Verdict.IN_SYNC
-        report.reason = f"{timeline_fit.placed_identity}/{n} cues already sit on foreign speech"
-    elif timeline_fit.placed >= need and moved:
+    if justified and timeline_fit.placed >= need:
         report.verdict = Verdict.RETIMED
         report.reason = (
             f"{timeline_fit.placed}/{n} cues sit on foreign speech after scale "
             f"{timeline_fit.scale:.5f}, offset {timeline_fit.offset:+.2f}s "
-            f"({timeline_fit.placed_identity} before)"
+            f"({timeline_fit.placed_identity} before; chance {timeline_fit.chance})"
         )
         if abs(timeline_fit.offset) > REVIEW_OFFSET or timeline_fit.scale != 1.0:
             report.review = True
             report.reason += " (large offset or framerate change: review)"
-    else:
-        report.verdict = Verdict.MISMATCH
-        report.review = True
+    elif timeline_fit.placed_identity >= need:
+        report.verdict = Verdict.IN_SYNC
         report.reason = (
-            f"the film has foreign speech, but at best {timeline_fit.placed}/{n} cues "
-            "line up with it"
+            f"{timeline_fit.placed_identity}/{n} cues already sit on foreign speech "
+            f"(chance {timeline_fit.chance})"
+        )
+    else:
+        # The film has foreign speech, but no placement beats luck: a wrong subtitle,
+        # or one that is mostly signs/visual cues, or weak language ID. Can't tell.
+        report.reason = (
+            f"no alignment beats chance: best {timeline_fit.placed}/{n} cues, unchanged "
+            f"{timeline_fit.placed_identity}, decoys {timeline_fit.chance}"
         )
     return report

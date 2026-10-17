@@ -7,9 +7,10 @@ import statistics
 import sys
 import time
 from collections import Counter
+from types import SimpleNamespace
 
 from ..forced import subtitles as S
-from ..forced.audio import fit_timeline, foreign_timeline
+from ..forced.audio import fit_timeline, foreign_timeline, regions_from_response
 from ..forced.verify import Verdict, verify, verify_audio
 from .audioeval import film_regions
 from .library import find_items
@@ -45,10 +46,15 @@ def main(argv=None):
         default=os.environ.get("TALKARR_ML_URL", "https://talkarr-ml.nkcx.net"),
         help="talkarr-ml base URL (audio command)",
     )
+    parser.add_argument(
+        "--regions",
+        help="audio command, offline: read cached analyses from DIR/<title>/"
+        "{regions.json,forced.srt} instead of analysing films (for tuning)",
+    )
     args = parser.parse_args(argv)
 
     started = time.monotonic()
-    items = find_items(args.root)
+    items = [] if args.regions else find_items(args.root)
     if args.title:
         items = [i for i in items if any(t.lower() in i.title.lower() for t in args.title)]
     print(
@@ -69,9 +75,12 @@ def main(argv=None):
         result = {"command": "perturb", "rows": run_perturb(items, sweep_rows, args.limit)}
         print_perturb(result["rows"])
     else:
-        audio_cache = os.path.join(args.out or "/tmp/talkarr-eval", "cache", "audio")
-        films = corpus(items, sweep_rows) if not args.title else items
-        rows, films_info = run_audio(films, audio_cache, args.ml_url, args.limit)
+        if args.regions:
+            rows, films_info = audio_cases(load_offline(args.regions))
+        else:
+            audio_cache = os.path.join(args.out or "/tmp/talkarr-eval", "cache", "audio")
+            films = corpus(items, sweep_rows) if not args.title else items
+            rows, films_info = run_audio(films, audio_cache, args.ml_url, args.limit)
         result = {"command": "audio", "rows": rows, "films": films_info}
         print_audio(films_info)
         print_perturb(rows)
@@ -190,7 +199,12 @@ def print_perturb(rows):
         print(f"| {name} | {passed}/{len(group)} |")
     failures = [r for r in rows if not r["pass"]]
     total = len(rows)
-    print(f"\n**{total - len(failures)}/{total} passed**")
+    harmful = [r for r in failures if is_harmful(r)]
+    print(f"\n**{total - len(failures)}/{total} passed; {len(harmful)} harmful**")
+    print(
+        "(harmful = a wrong retime, or accepting a subtitle that doesn't belong; other "
+        "failures are conservative: left unchanged or reported as unverifiable)"
+    )
     if failures:
         print("\n### failures\n")
         for r in failures:
@@ -208,21 +222,41 @@ def run_audio(films, cache_dir, ml_url, limit=0):
     """Perturbation suite judged by the audio path alone (no full subtitle used)."""
     films = films[: limit or None]
     print(f"audio corpus: {len(films)} films\n")
-    loaded = []
-    films_info = []
+    sources = []
     for film in films:
         try:
             regions, info = film_regions(film, cache_dir, ml_url)
         except Exception as e:  # noqa: BLE001 - one film must not stop the run
             regions, info = None, {"ok": False, "error": f"{type(e).__name__}: {e}"}
-        info["title"] = film.title
+        sources.append((film.title, film.forced, regions, info))
+    return audio_cases(sources)
+
+
+def load_offline(directory):
+    """Cached analyses exported from the lab: ``DIR/<title>/{regions.json,forced.srt}``."""
+    sources = []
+    for title in sorted(os.listdir(directory)):
+        with open(os.path.join(directory, title, "regions.json")) as f:
+            data = json.load(f)
+        info = {"ok": True, "stream": data.get("stream", {}), "regions": len(data["regions"])}
+        sources.append(
+            (title, os.path.join(directory, title, "forced.srt"), regions_from_response(data), info)
+        )
+    return sources
+
+
+def audio_cases(sources):
+    loaded = []
+    films_info = []
+    for title, forced_path, regions, info in sources:
+        info["title"] = title
         if regions is not None:
             timeline = foreign_timeline(regions)
             info["foreign_spans"] = len(timeline.foreign)
             info["foreign_seconds"] = round(timeline.foreign_seconds, 1)
-            loaded.append((film, S.load(film.forced), timeline))
+            loaded.append((SimpleNamespace(title=title), S.load(forced_path), timeline))
         films_info.append(info)
-        print(f"  analysed {film.title}: {info}", flush=True)
+        print(f"  analysed {title}: {info}", flush=True)
 
     rows = []
     for n, (film, forced, timeline) in enumerate(loaded):
@@ -266,6 +300,14 @@ def print_audio(films_info):
             f"| {f.get('foreign_spans')} | {f.get('foreign_seconds')} |"
         )
     print()
+
+
+def is_harmful(row):
+    """A failure that would damage or wrongly bless a subtitle, as opposed to a
+    conservative one (no change, or "can't tell")."""
+    if row["verdict"] == Verdict.RETIMED:
+        return True  # retimed when it shouldn't be, or to the wrong timing
+    return row["verdict"] == Verdict.IN_SYNC and row["expected"] == Verdict.MISMATCH
 
 
 def save(result, out_dir):

@@ -20,6 +20,7 @@ Models never run here; talkarr-ml (on the AI host) does that.
 
 import bisect
 import json
+import random
 import subprocess
 from dataclasses import dataclass, field
 
@@ -276,57 +277,55 @@ def _merge(spans, gap=0.3):
 # --- 5: fit ---------------------------------------------------------------------------
 
 MAX_OFFSET = 300.0  # seconds searched either way
-ON_SPEECH = 0.4  # a cue counts as placed when this share of it overlaps foreign speech
 SLACK = 0.3  # seconds of tolerance around speech (cue timing vs VAD edges)
+REFINE_STEP = 0.02
+REFINE_REACH = 1.5  # seconds around the best placed-count range searched by overlap
+# Chance baseline: the forced cues' durations at random times in the film, fitted the
+# same way. With hundreds of (partly false) foreign spans and few cues, some offset
+# always places a few cues by luck; a real fit has to beat what luck achieves.
+CHANCE_TRIALS = 5
 
 
 @dataclass
 class TimelineFit:
     scale: float
     offset: float
-    placed: int  # forced cues on foreign speech after the transform
+    placed: int  # forced cues whose midpoint sits on foreign speech after the transform
     placed_identity: int  # ...and before it
     overlap: float = 0.0  # seconds of forced-cue time on foreign speech after...
     overlap_identity: float = 0.0  # ...and before
+    chance: int = 0  # most cues the same search places for decoy cues
 
     def apply(self, t):
         return self.scale * t + self.offset
 
 
-REFINE_REACH = 1.5  # seconds around a coarse candidate searched for the overlap peak
-REFINE_STEP = 0.02
-MAX_REFINED = 12  # coarse candidates refined per scale
-
-
 def fit_timeline(cues, spans, scales=SCALES, max_offset=MAX_OFFSET):
     """Best scale/offset for ``cues`` against foreign ``spans``; None if no spans.
 
-    Coarse: offsets that put a cue start on a span start, ranked by how many cues end
-    up on foreign speech (robust to cues with no audio). Fine: around the best coarse
-    candidates, maximise total overlap in seconds, which peaks at the true alignment
-    and separates nearby offsets/framerates that place the same number of cues.
+    A cue is *placed* when its midpoint falls on foreign speech (± SLACK). For each
+    scale, the offsets that place a cue form a union of intervals, so a sweep over all
+    cues' intervals finds exactly the offset range placing the most cues (robust to
+    cues with no audio). Within that range, total overlap in seconds picks the precise
+    offset, which separates nearby offsets/framerates that place the same cues.
     """
     if not spans or not cues:
         return None
     index = _SpanIndex(spans)
     best = None
     for scale in scales:
-        candidates = {0.0} if scale == 1.0 else set()
-        for cue in cues:
-            t = scale * cue.start
-            for s, _ in index.near(t, max_offset):
-                candidates.add(round(s - t, 2))
-        if not candidates:
-            continue  # no foreign speech within reach of any cue at this framerate
-        ranked = sorted(((_placed(cues, index, scale, o), o) for o in candidates), reverse=True)
-        top = ranked[0][0]
-        for placed, coarse in ranked[:MAX_REFINED]:
-            if placed < top:
-                break
-            offset, overlap = _refine(cues, index, scale, coarse)
-            key = (_placed(cues, index, scale, offset), round(overlap, 1), scale == 1.0)
-            if best is None or key > best[0]:
-                best = (key, scale, offset, overlap)
+        count, lo, hi = _best_range(cues, index, scale, max_offset)
+        if count == 0 and scale != 1.0:
+            continue
+        if count == 0:
+            lo = hi = 0.0
+        # The placed-count range finds the neighbourhood; overlap (seconds) decides the
+        # exact offset and, across scales, the framerate. Counts are inflated by false
+        # foreign spans; overlap rewards cues lining up along their whole length.
+        offset, overlap = _refine(cues, index, scale, lo - REFINE_REACH, hi + REFINE_REACH)
+        key = (round(overlap, 1), scale == 1.0, -abs(offset))
+        if best is None or key > best[0]:
+            best = (key, scale, offset, overlap)
     _, scale, offset, overlap = best
     return TimelineFit(
         scale,
@@ -335,28 +334,92 @@ def fit_timeline(cues, spans, scales=SCALES, max_offset=MAX_OFFSET):
         _placed(cues, index, 1.0, 0.0),
         round(overlap, 3),
         round(_overlap(cues, index, 1.0, 0.0), 3),
+        chance=_chance(cues, index, scales, max_offset),
     )
 
 
-def _placed(cues, index, scale, offset):
-    count = 0
+def _best_range(cues, index, scale, max_offset):
+    """(cues placed, offset range [lo, hi]) maximising placed cues at this scale.
+
+    Ties prefer the range closest to no change."""
+    events = []
     for cue in cues:
-        s, e = scale * cue.start + offset, scale * cue.end + offset
-        if e > s and index.overlap(s - SLACK, e + SLACK) >= ON_SPEECH * (e - s):
-            count += 1
-    return count
+        mid = scale * cue.midpoint
+        intervals = []
+        for s, e in index.near(mid, max_offset + index.longest):
+            lo, hi = s - SLACK - mid, e + SLACK - mid
+            lo, hi = max(lo, -max_offset), min(hi, max_offset)
+            if lo <= hi:
+                intervals.append((lo, hi))
+        for lo, hi in _merge(intervals, gap=0.0):
+            events.append((lo, 0, +1))
+            events.append((hi, 1, -1))  # closes after opens at the same offset
+    events.sort()
+    count, best = 0, (0, 0.0, 0.0)
+    for i, (x, _, delta) in enumerate(events):
+        count += delta
+        if delta > 0:
+            nxt = events[i + 1][0] if i + 1 < len(events) else x
+            rng = (count, x, nxt)
+            if count > best[0] or (count == best[0] and _distance(rng) < _distance(best)):
+                best = rng
+    return best
+
+
+def _distance(rng):
+    _, lo, hi = rng
+    return 0.0 if lo <= 0.0 <= hi else min(abs(lo), abs(hi))
+
+
+def _chance(cues, index, scales, max_offset, trials=CHANCE_TRIALS):
+    """Most cues the search places for decoys: this subtitle's own cue pattern moved
+    far from where it is (wrapping around the film), so the baseline keeps its
+    clustering (forced cues come in scenes, which match clustered speech more easily
+    than scattered cues would). Deterministic."""
+    rng = random.Random(len(cues) * 7919 + len(index.spans))
+    horizon = max(index.spans[-1][1], *(c.end for c in cues))
+    if horizon <= 4 * max_offset:
+        return 0
+    best = 0
+    for _ in range(trials):
+        shift = rng.uniform(2 * max_offset, horizon - 2 * max_offset)
+        decoys = []
+        for c in cues:
+            t = (c.start + shift) % horizon
+            decoys.append(_Interval(t, t + (c.end - c.start)))
+        decoys.sort(key=lambda d: d.start)
+        for scale in scales:
+            best = max(best, _best_range(decoys, index, scale, max_offset)[0])
+    return best
+
+
+@dataclass(frozen=True)
+class _Interval:
+    start: float
+    end: float
+
+    @property
+    def midpoint(self):
+        return (self.start + self.end) / 2
+
+
+def _placed(cues, index, scale, offset):
+    return sum(1 for c in cues if index.contains(scale * c.midpoint + offset, SLACK))
 
 
 def _overlap(cues, index, scale, offset):
     return sum(index.overlap(scale * c.start + offset, scale * c.end + offset) for c in cues)
 
 
-def _refine(cues, index, scale, offset):
-    """Offset near ``offset`` with the most overlap; centre of the plateau on ties."""
-    steps = int(REFINE_REACH / REFINE_STEP)
+def _refine(cues, index, scale, lo, hi):
+    """Offset in [lo, hi] with the most overlap; centre of the plateau on ties."""
+    steps = max(1, int((hi - lo) / REFINE_STEP))
     scored = [
-        (round(_overlap(cues, index, scale, offset + k * REFINE_STEP), 3), offset + k * REFINE_STEP)
-        for k in range(-steps, steps + 1)
+        (
+            round(_overlap(cues, index, scale, lo + k * (hi - lo) / steps), 3),
+            lo + k * (hi - lo) / steps,
+        )
+        for k in range(steps + 1)
     ]
     peak = max(v for v, _ in scored)
     plateau = [o for v, o in scored if v >= peak - 1e-6]
@@ -367,6 +430,16 @@ class _SpanIndex:
     def __init__(self, spans):
         self.spans = sorted(spans)
         self.starts = [s for s, _ in self.spans]
+        self.longest = max((e - s for s, e in self.spans), default=0.0)
+
+    def contains(self, t, slack=0.0):
+        i = bisect.bisect_right(self.starts, t + slack) - 1
+        while i >= 0 and self.spans[i][0] >= t - slack - self.longest:
+            s, e = self.spans[i]
+            if s - slack <= t <= e + slack:
+                return True
+            i -= 1
+        return False
 
     def near(self, t, reach):
         lo = bisect.bisect_left(self.starts, t - reach)

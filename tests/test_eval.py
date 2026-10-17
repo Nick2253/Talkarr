@@ -89,8 +89,8 @@ def test_perturb_cli_passes_on_synthetic_library(library, capsys):
     assert main(["perturb", "--root", str(library / "movies")]) == 0
     printed = capsys.readouterr().out
     assert "perturbation corpus: 2 films" in printed
-    assert "failures" not in printed
-    assert "**34/34 passed**" in printed
+    assert "### failures" not in printed
+    assert "**34/34 passed; 0 harmful**" in printed
 
 
 def test_title_filter_and_bad_files(library, capsys):
@@ -200,7 +200,7 @@ def test_audio_cli_with_fake_analysis(library, monkeypatch, capsys):
     printed = capsys.readouterr().out
     assert "audio corpus: 2 films" in printed
     assert "#1 5.1 FC" in printed
-    assert "failures" not in printed, printed
+    assert "### failures" not in printed, printed
 
 
 def test_audio_cli_reports_analysis_errors(library, monkeypatch, capsys):
@@ -212,3 +212,53 @@ def test_audio_cli_reports_analysis_errors(library, monkeypatch, capsys):
     monkeypatch.setattr(cli, "film_regions", broken)
     assert main(["audio", "--root", str(library / "movies")]) == 0
     assert "talkarr-ml unreachable" in capsys.readouterr().out
+
+
+def test_film_regions_extracts_analyses_and_caches(library, tmp_path, monkeypatch):
+    from talkarr.eval import audioeval
+    from talkarr.eval.library import find_items
+    from talkarr.forced.audio import AudioStream
+
+    item = next(i for i in find_items(str(library / "movies")) if i.reference)
+    calls = []
+    monkeypatch.setattr(
+        audioeval.audio,
+        "probe_audio_streams",
+        lambda v: [AudioStream(1, 6, "5.1(side)", "eng", "")],
+    )
+    monkeypatch.setattr(
+        audioeval.audio,
+        "extract_dialogue",
+        lambda video, stream, out: calls.append(("extract", stream.index)) or out,
+    )
+
+    def analyze(clip, url):
+        calls.append(("analyze", url))
+        return {
+            "duration": 60.0,
+            "regions": [{"start": 1.0, "end": 2.0, "p_en": 0.1, "top": [["ru", 0.8], ["uk", 0.1]]}],
+        }
+
+    monkeypatch.setattr(audioeval.audio, "analyze", analyze)
+    cache = str(tmp_path / "audio-cache")
+
+    regions, info = audioeval.film_regions(item, cache, "http://ml")
+    assert [r.start for r in regions] == [1.0]
+    assert info["stream"] == {"index": 1, "layout": "5.1(side)", "center": True, "language": "eng"}
+    assert calls == [("extract", 1), ("analyze", "http://ml")]
+
+    audioeval.film_regions(item, cache, "http://ml")  # cached: no new work
+    assert len(calls) == 2
+
+
+def test_film_regions_without_video_or_audio(tmp_path, monkeypatch):
+    from talkarr.eval import audioeval
+    from talkarr.eval.library import Item
+
+    sub = tmp_path / "Lonely.en.forced.srt"
+    sub.write_text("")
+    item = Item("Lonely", str(sub), None)
+    assert audioeval.film_regions(item, str(tmp_path), "x")[1]["error"].startswith("no video")
+    (tmp_path / "Lonely.mkv").write_bytes(b"")
+    monkeypatch.setattr(audioeval.audio, "probe_audio_streams", lambda v: [])
+    assert audioeval.film_regions(item, str(tmp_path), "x")[1]["error"] == "no usable audio stream"

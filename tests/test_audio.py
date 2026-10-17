@@ -249,10 +249,14 @@ def test_audio_verdict_retimed():
     assert not report.review
 
 
-def test_audio_verdict_mismatch_for_unrelated_cues():
+def test_audio_verdict_unrelated_cues_are_unverifiable():
+    """No placement beats chance: the audio path can't tell a wrong subtitle from a
+    mostly-visual one, so it says so instead of claiming either."""
     spans = film_spans()
     unrelated = [Cue(3000 + 61.7 * i, 3001.5 + 61.7 * i, "x") for i in range(20)]
-    assert judge(unrelated, spans).verdict == Verdict.MISMATCH
+    report = judge(unrelated, spans)
+    assert report.verdict == Verdict.UNVERIFIABLE
+    assert "beats chance" in report.reason
 
 
 def test_audio_verdict_unverifiable_without_foreign_speech():
@@ -275,3 +279,16 @@ def test_fit_when_speech_is_out_of_reach_at_some_framerates():
     fit = fit_timeline(far, spans, max_offset=60)
     assert fit.scale == 1.0 and fit.offset == pytest.approx(0, abs=1.6)
     assert fit.placed == 0
+
+
+def test_few_cues_on_noisy_timeline_never_retime():
+    """MI3 / Live Free or Die Hard: 6 cues against hundreds of partly false foreign
+    spans. Some offset always places most cues by luck; that must not become a retime."""
+    import random
+
+    rng = random.Random(1)
+    noisy = sorted((t, t + rng.uniform(0.5, 3)) for t in (rng.uniform(0, 7000) for _ in range(400)))
+    cues = [Cue(1000 + 400 * i, 1002 + 400 * i, "x") for i in range(6)]
+    report = judge(cues, audio._merge(noisy))
+    assert report.verdict == Verdict.UNVERIFIABLE
+    assert report.details["chance"] >= 4
