@@ -217,3 +217,54 @@ def test_visual_cues_do_not_break_the_fit():
 
 def test_fit_without_spans():
     assert fit_timeline([Cue(1, 2, "x")], []) is None
+
+
+# --- verdicts -----------------------------------------------------------------------
+
+from talkarr.forced.verify import Verdict, verify_audio  # noqa: E402
+
+
+def judge(cues, spans):
+    return verify_audio(cues, fit_timeline(cues, spans), spans)
+
+
+def test_audio_verdict_in_sync():
+    spans = film_spans()
+    assert judge(cues_on(spans), spans).verdict == Verdict.IN_SYNC
+
+
+def test_audio_verdict_retimed():
+    spans = film_spans()
+    shifted = [Cue(c.start + 9, c.end + 9, c.text) for c in cues_on(spans)]
+    report = judge(shifted, spans)
+    assert report.verdict == Verdict.RETIMED
+    assert report.offset == pytest.approx(-9, abs=0.3)
+    assert not report.review
+
+
+def test_audio_verdict_mismatch_for_unrelated_cues():
+    spans = film_spans()
+    unrelated = [Cue(3000 + 61.7 * i, 3001.5 + 61.7 * i, "x") for i in range(20)]
+    assert judge(unrelated, spans).verdict == Verdict.MISMATCH
+
+
+def test_audio_verdict_unverifiable_without_foreign_speech():
+    """Baby Driver-style: forced cues for sign language, no foreign audio at all."""
+    cues = [Cue(1000 + 5 * i, 1003 + 5 * i, "signed") for i in range(10)]
+    report = judge(cues, [])
+    assert report.verdict == Verdict.UNVERIFIABLE
+    assert "too little foreign speech" in report.reason
+
+
+def test_audio_verdict_mislabelled_and_empty():
+    spans = film_spans()
+    assert judge([Cue(i, i + 1, "x") for i in range(300)], spans).verdict == Verdict.MISLABELLED
+    assert verify_audio([], None, spans).verdict == Verdict.UNVERIFIABLE
+
+
+def test_fit_when_speech_is_out_of_reach_at_some_framerates():
+    spans = film_spans()  # 100 s .. 1000 s
+    far = [Cue(5000 + 10 * i, 5002 + 10 * i, "x") for i in range(5)]
+    fit = fit_timeline(far, spans, max_offset=60)
+    assert fit.scale == 1.0 and fit.offset == pytest.approx(0, abs=1.6)
+    assert fit.placed == 0

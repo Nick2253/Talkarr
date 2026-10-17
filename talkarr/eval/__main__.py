@@ -9,7 +9,9 @@ import time
 from collections import Counter
 
 from ..forced import subtitles as S
-from ..forced.verify import Verdict, verify
+from ..forced.audio import fit_timeline, foreign_timeline
+from ..forced.verify import Verdict, verify, verify_audio
+from .audioeval import film_regions
 from .library import find_items
 from .perturb import cases, repair_error
 from .refsync import synced_reference
@@ -23,7 +25,7 @@ REPAIR_TOLERANCE = 0.1
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m talkarr.eval")
-    parser.add_argument("command", choices=["sweep", "perturb"])
+    parser.add_argument("command", choices=["sweep", "perturb", "audio"])
     parser.add_argument("--root", default=os.environ.get("MEDIA_PATH", "/media") + "/movies")
     parser.add_argument("--limit", type=int, default=0, help="stop after N films")
     parser.add_argument("--title", action="append", default=[], help="only titles containing")
@@ -37,6 +39,11 @@ def main(argv=None):
         action="store_true",
         help="align each full subtitle to its video with ffsubsync before judging "
         "(cached under <out>/cache/refsync); only for films the text path can anchor",
+    )
+    parser.add_argument(
+        "--ml-url",
+        default=os.environ.get("TALKARR_ML_URL", "https://talkarr-ml.nkcx.net"),
+        help="talkarr-ml base URL (audio command)",
     )
     args = parser.parse_args(argv)
 
@@ -58,9 +65,16 @@ def main(argv=None):
     if args.command == "sweep":
         result = {"command": "sweep", "rows": sweep_rows}
         print_sweep(sweep_rows)
-    else:
+    elif args.command == "perturb":
         result = {"command": "perturb", "rows": run_perturb(items, sweep_rows, args.limit)}
         print_perturb(result["rows"])
+    else:
+        audio_cache = os.path.join(args.out or "/tmp/talkarr-eval", "cache", "audio")
+        films = corpus(items, sweep_rows) if not args.title else items
+        rows, films_info = run_audio(films, audio_cache, args.ml_url, args.limit)
+        result = {"command": "audio", "rows": rows, "films": films_info}
+        print_audio(films_info)
+        print_perturb(rows)
 
     result["seconds"] = round(time.monotonic() - started, 1)
     print(f"\n({result['seconds']} s)")
@@ -185,6 +199,73 @@ def print_perturb(rows):
                 f"- {r['title']} / {r['case']}: expected {r['expected']}, "
                 f"got {r['verdict']}{err}: {r['reason']}"
             )
+
+
+# --- audio -------------------------------------------------------------------------
+
+
+def run_audio(films, cache_dir, ml_url, limit=0):
+    """Perturbation suite judged by the audio path alone (no full subtitle used)."""
+    films = films[: limit or None]
+    print(f"audio corpus: {len(films)} films\n")
+    loaded = []
+    films_info = []
+    for film in films:
+        try:
+            regions, info = film_regions(film, cache_dir, ml_url)
+        except Exception as e:  # noqa: BLE001 - one film must not stop the run
+            regions, info = None, {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        info["title"] = film.title
+        if regions is not None:
+            timeline = foreign_timeline(regions)
+            info["foreign_spans"] = len(timeline.foreign)
+            info["foreign_seconds"] = round(timeline.foreign_seconds, 1)
+            loaded.append((film, S.load(film.forced), timeline))
+        films_info.append(info)
+        print(f"  analysed {film.title}: {info}", flush=True)
+
+    rows = []
+    for n, (film, forced, timeline) in enumerate(loaded):
+        other = loaded[(n + 1) % len(loaded)][1] if len(loaded) > 1 else None
+        for case in cases(forced, forced, other_forced=other, seed=n):
+            if case.name == "full subtitle labelled forced":
+                continue  # no full subtitle on this path
+            fit = fit_timeline(case.cues, timeline.foreign)
+            report = verify_audio(case.cues, fit, timeline.foreign)
+            row = {
+                "title": film.title,
+                "case": case.name,
+                "expected": str(case.expected),
+                "verdict": str(report.verdict),
+                "reason": report.reason,
+            }
+            ok = report.verdict == case.expected or report.verdict in case.also_ok
+            if ok and case.expected == Verdict.RETIMED:
+                errors = repair_error(case, report, forced)
+                row["max_error"] = round(max(errors), 3) if errors else None
+                row["median_error"] = round(statistics.median(errors), 3) if errors else None
+                # Audio anchors are VAD edges, not subtitle times: judge the median.
+                ok = bool(errors) and statistics.median(errors) <= AUDIO_REPAIR_TOLERANCE
+            row["pass"] = ok
+            rows.append(row)
+    return rows, films_info
+
+
+AUDIO_REPAIR_TOLERANCE = 0.5
+
+
+def print_audio(films_info):
+    print("| film | stream | foreign spans | foreign s |\n|---|---|---|---|")
+    for f in films_info:
+        if not f.get("ok"):
+            print(f"| {f['title']} | error: {f.get('error')} | | |")
+            continue
+        st = f["stream"]
+        print(
+            f"| {f['title']} | #{st['index']} {st['layout']}{' FC' if st['center'] else ''} "
+            f"| {f.get('foreign_spans')} | {f.get('foreign_seconds')} |"
+        )
+    print()
 
 
 def save(result, out_dir):

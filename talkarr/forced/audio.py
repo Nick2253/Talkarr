@@ -284,34 +284,55 @@ class TimelineFit:
     offset: float
     placed: int  # forced cues on foreign speech after the transform
     placed_identity: int  # ...and before it
+    overlap: float = 0.0  # seconds of forced-cue time on foreign speech after...
+    overlap_identity: float = 0.0  # ...and before
 
     def apply(self, t):
         return self.scale * t + self.offset
 
 
+REFINE_REACH = 1.5  # seconds around a coarse candidate searched for the overlap peak
+REFINE_STEP = 0.02
+MAX_REFINED = 12  # coarse candidates refined per scale
+
+
 def fit_timeline(cues, spans, scales=SCALES, max_offset=MAX_OFFSET):
-    """Best scale/offset for ``cues`` against foreign ``spans``; None if no spans."""
+    """Best scale/offset for ``cues`` against foreign ``spans``; None if no spans.
+
+    Coarse: offsets that put a cue start on a span start, ranked by how many cues end
+    up on foreign speech (robust to cues with no audio). Fine: around the best coarse
+    candidates, maximise total overlap in seconds, which peaks at the true alignment
+    and separates nearby offsets/framerates that place the same number of cues.
+    """
     if not spans or not cues:
         return None
     index = _SpanIndex(spans)
     best = None
     for scale in scales:
-        # Candidate offsets: put some cue start on some span start.
         candidates = {0.0} if scale == 1.0 else set()
         for cue in cues:
             t = scale * cue.start
             for s, _ in index.near(t, max_offset):
                 candidates.add(round(s - t, 2))
-        for offset in candidates:
-            placed = _placed(cues, index, scale, offset)
-            key = (placed, scale == 1.0, -abs(offset))
+        if not candidates:
+            continue  # no foreign speech within reach of any cue at this framerate
+        ranked = sorted(((_placed(cues, index, scale, o), o) for o in candidates), reverse=True)
+        top = ranked[0][0]
+        for placed, coarse in ranked[:MAX_REFINED]:
+            if placed < top:
+                break
+            offset, overlap = _refine(cues, index, scale, coarse)
+            key = (_placed(cues, index, scale, offset), round(overlap, 1), scale == 1.0)
             if best is None or key > best[0]:
-                best = (key, scale, offset)
-    _, scale, offset = best
-    # Refine: centre the offset within the plateau of equally good offsets.
-    offset = _refine(cues, index, scale, offset)
+                best = (key, scale, offset, overlap)
+    _, scale, offset, overlap = best
     return TimelineFit(
-        scale, offset, _placed(cues, index, scale, offset), _placed(cues, index, 1.0, 0.0)
+        scale,
+        offset,
+        _placed(cues, index, scale, offset),
+        _placed(cues, index, 1.0, 0.0),
+        round(overlap, 3),
+        round(_overlap(cues, index, 1.0, 0.0), 3),
     )
 
 
@@ -324,14 +345,20 @@ def _placed(cues, index, scale, offset):
     return count
 
 
-def _refine(cues, index, scale, offset, step=0.05, reach=2.0):
-    best = _placed(cues, index, scale, offset)
-    good = [
-        offset + k * step
-        for k in range(int(-reach / step), int(reach / step) + 1)
-        if _placed(cues, index, scale, offset + k * step) == best
+def _overlap(cues, index, scale, offset):
+    return sum(index.overlap(scale * c.start + offset, scale * c.end + offset) for c in cues)
+
+
+def _refine(cues, index, scale, offset):
+    """Offset near ``offset`` with the most overlap; centre of the plateau on ties."""
+    steps = int(REFINE_REACH / REFINE_STEP)
+    scored = [
+        (round(_overlap(cues, index, scale, offset + k * REFINE_STEP), 3), offset + k * REFINE_STEP)
+        for k in range(-steps, steps + 1)
     ]
-    return round((min(good) + max(good)) / 2, 3) if good else offset
+    peak = max(v for v, _ in scored)
+    plateau = [o for v, o in scored if v >= peak - 1e-6]
+    return round((min(plateau) + max(plateau)) / 2, 3), peak
 
 
 class _SpanIndex:

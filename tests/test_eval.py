@@ -175,3 +175,40 @@ def test_failed_reference_sync_is_retried(library, tmp_path, monkeypatch):
     assert refsync.synced_reference(item, cache)[0] is None
     assert refsync.synced_reference(item, cache)[0] is None
     assert len(calls) == 2
+
+
+def test_audio_cli_with_fake_analysis(library, monkeypatch, capsys):
+    """Foreign speech exactly where each film's forced cues are: every perturbation
+    must be detected and repaired by the audio path alone."""
+    from talkarr.eval import __main__ as cli
+    from talkarr.forced.audio import Region
+
+    def fake_regions(item, cache_dir, ml_url):
+        cues = S.load(item.forced)
+        regions = [
+            Region(c.start - 0.1, c.end + 0.1, 0.02, (("ru", 0.8), ("uk", 0.1))) for c in cues
+        ]
+        info = {
+            "ok": True,
+            "stream": {"index": 1, "layout": "5.1", "center": True, "language": "eng"},
+            "regions": len(regions),
+        }
+        return regions, info
+
+    monkeypatch.setattr(cli, "film_regions", fake_regions)
+    assert main(["audio", "--root", str(library / "movies")]) == 0
+    printed = capsys.readouterr().out
+    assert "audio corpus: 2 films" in printed
+    assert "#1 5.1 FC" in printed
+    assert "failures" not in printed, printed
+
+
+def test_audio_cli_reports_analysis_errors(library, monkeypatch, capsys):
+    from talkarr.eval import __main__ as cli
+
+    def broken(*a, **k):
+        raise ConnectionError("talkarr-ml unreachable")
+
+    monkeypatch.setattr(cli, "film_regions", broken)
+    assert main(["audio", "--root", str(library / "movies")]) == 0
+    assert "talkarr-ml unreachable" in capsys.readouterr().out

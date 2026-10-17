@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from .anchors import has_foreign_annotations, text_anchors
-from .fit import fit_anchors
+from .fit import IDENTITY_OFFSET, fit_anchors
 from .subtitles import normalize
 
 # A "forced" subtitle with this many cues, and no reference to compare with,
@@ -172,3 +172,76 @@ def _section_share(fit, reference):
     if window < SECTION_MIN_WINDOW_CUES:
         return None
     return fit.inlier_count / window
+
+
+# --- audio path (S2) -----------------------------------------------------------------
+
+# Share of forced cues that must sit on foreign speech for the audio path to vouch for
+# a subtitle; real forced tracks also carry signs/on-screen text, so not all will.
+AUDIO_MIN_PLACED_SHARE = 0.5
+# A retime must place clearly more cues than leaving the subtitle alone, or put
+# clearly more of the cue time on foreign speech.
+AUDIO_MIN_GAIN_SHARE = 0.2
+AUDIO_MIN_OVERLAP_GAIN = 0.1
+# Below this much foreign speech the film gives the audio path nothing to hold on to
+# (e.g. forced subs that are all signs or sign language).
+AUDIO_MIN_FOREIGN_SPANS = 3
+
+
+def verify_audio(forced, timeline_fit, foreign_spans):
+    """Judge ``forced`` against the film's foreign-speech timeline.
+
+    ``timeline_fit`` is ``audio.fit_timeline(forced, foreign_spans)``.
+    """
+    n = len(forced)
+    report = Report(Verdict.UNVERIFIABLE, "", n)
+    report.details["foreign_spans"] = len(foreign_spans)
+    if n == 0:
+        report.reason = "forced subtitle has no cues"
+        return report
+    if n >= MISLABEL_MIN_CUES:
+        report.verdict = Verdict.MISLABELLED
+        report.reason = f"{n} cues: a full subtitle labelled as forced"
+        return report
+    if len(foreign_spans) < AUDIO_MIN_FOREIGN_SPANS or timeline_fit is None:
+        report.reason = "too little foreign speech in the audio to anchor on"
+        return report
+
+    need = max(MIN_INLIERS, AUDIO_MIN_PLACED_SHARE * n)
+    gain = timeline_fit.placed - timeline_fit.placed_identity
+    report.inliers = timeline_fit.placed
+    report.coverage = timeline_fit.placed / n
+    report.scale = timeline_fit.scale
+    report.offset = round(timeline_fit.offset, 3)
+    report.details["placed_unchanged"] = timeline_fit.placed_identity
+
+    moved = timeline_fit.scale != 1.0 or abs(timeline_fit.offset) > IDENTITY_OFFSET
+    better = timeline_fit.overlap > (1 + AUDIO_MIN_OVERLAP_GAIN) * timeline_fit.overlap_identity
+    report.details["overlap"] = timeline_fit.overlap
+    report.details["overlap_unchanged"] = timeline_fit.overlap_identity
+
+    if (
+        timeline_fit.placed_identity >= need
+        and not (moved and better)
+        and (gain < max(2, AUDIO_MIN_GAIN_SHARE * n))
+    ):
+        report.verdict = Verdict.IN_SYNC
+        report.reason = f"{timeline_fit.placed_identity}/{n} cues already sit on foreign speech"
+    elif timeline_fit.placed >= need and moved:
+        report.verdict = Verdict.RETIMED
+        report.reason = (
+            f"{timeline_fit.placed}/{n} cues sit on foreign speech after scale "
+            f"{timeline_fit.scale:.5f}, offset {timeline_fit.offset:+.2f}s "
+            f"({timeline_fit.placed_identity} before)"
+        )
+        if abs(timeline_fit.offset) > REVIEW_OFFSET or timeline_fit.scale != 1.0:
+            report.review = True
+            report.reason += " (large offset or framerate change: review)"
+    else:
+        report.verdict = Verdict.MISMATCH
+        report.review = True
+        report.reason = (
+            f"the film has foreign speech, but at best {timeline_fit.placed}/{n} cues "
+            "line up with it"
+        )
+    return report
