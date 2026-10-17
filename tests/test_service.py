@@ -50,7 +50,7 @@ def test_agreeing_framerate_fix_needs_no_review():
 
 
 def test_broad_agreement_star_wars():
-    """Star Wars: text 25->23.976 -0.90 s (residual 6 ms); audio 25->24 -4.31 s.
+    """Star Wars: text 25->23.976 -0.90 s (residual 0.17 s); audio 25->24 -4.31 s.
     Same PAL correction, cues within ~3 s: the precise text fit stands."""
     text = report(
         "retimed",
@@ -59,7 +59,7 @@ def test_broad_agreement_star_wars():
         review=True,
         reason="29 lines (large offset or framerate change: review)",
     )
-    text.residual_p90 = 0.006
+    text.residual_p90 = 0.173
     d = combine(text, report("retimed", scale=0.96, offset=-4.31, reason="26/30 cues"))
     assert d.verdict == Verdict.RETIMED and not d.review
     assert d.scale == 0.95904 and "broadly agrees" in d.reason

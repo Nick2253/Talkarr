@@ -130,7 +130,7 @@ SAMPLE_TIMES = (600.0, 3600.0, 6000.0)
 # where the audio fit's framerate resolution is coarser), and the text fit itself is
 # precise against the synced full subtitle.
 BROAD_AGREE_SECONDS = 5.0
-PRECISE_TEXT_RESIDUAL = 0.1
+PRECISE_TEXT_RESIDUAL = 0.25  # s; Star Wars: 0.173 against an ffsubsync-rescaled reference
 
 
 def _max_gap(text, audio):
