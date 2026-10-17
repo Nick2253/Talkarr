@@ -36,6 +36,42 @@ def test_text_and_audio_agree():
     assert "audio agrees" in d.reason
 
 
+def test_agreeing_framerate_fix_needs_no_review():
+    text = report(
+        "retimed",
+        scale=23.976 / 25,
+        offset=-0.9,
+        review=True,
+        reason="x (large offset or framerate change: review)",
+    )
+    d = combine(text, report("retimed", scale=23.976 / 25, offset=-1.2))
+    assert d.verdict == Verdict.RETIMED and not d.review
+    assert "audio agrees" in d.reason and "review" not in d.reason.split(";")[0]
+
+
+def test_broad_agreement_star_wars():
+    """Star Wars: text 25->23.976 -0.90 s (residual 6 ms); audio 25->24 -4.31 s.
+    Same PAL correction, cues within ~3 s: the precise text fit stands."""
+    text = report(
+        "retimed",
+        scale=0.95904,
+        offset=-0.9,
+        review=True,
+        reason="29 lines (large offset or framerate change: review)",
+    )
+    text.residual_p90 = 0.006
+    d = combine(text, report("retimed", scale=0.96, offset=-4.31, reason="26/30 cues"))
+    assert d.verdict == Verdict.RETIMED and not d.review
+    assert d.scale == 0.95904 and "broadly agrees" in d.reason
+
+
+def test_broad_agreement_requires_a_precise_text_fit():
+    text = report("retimed", scale=0.95904, offset=-0.9, review=True)
+    text.residual_p90 = 0.5
+    d = combine(text, report("retimed", scale=0.96, offset=-4.31))
+    assert d.review and "disagrees" in d.reason
+
+
 def test_text_and_audio_disagree_needs_review():
     d = combine(report("in_sync"), report("retimed", scale=23.976 / 25))
     assert d.verdict == Verdict.IN_SYNC and d.review
@@ -50,6 +86,36 @@ def test_text_alone_and_audio_alone():
     assert d.verdict == Verdict.IN_SYNC and d.source == "audio"
     assert "text couldn't tell (lines missing)" in d.reason
     assert combine(None, report("retimed", offset=3)).verdict == Verdict.RETIMED
+
+
+def test_inconclusive_audio_fit_corroborates_same_correction():
+    """Spy Game: text wants 24->23.976 and -1.12 s (review); audio alone can't beat
+    chance but its best fit is the same correction with +84% cue time on speech."""
+    text = report(
+        "retimed",
+        scale=0.999,
+        offset=-1.125,
+        review=True,
+        reason="26 lines line up (large offset or framerate change: review)",
+    )
+    audio = report("unverifiable", scale=0.999, offset=-1.583, reason="no alignment beats chance")
+    audio.details = {"overlap_gain": 0.845}
+    d = combine(text, audio)
+    assert d.verdict == Verdict.RETIMED and not d.review
+    assert "audio independently finds the same correction" in d.reason
+    assert "review" not in d.reason
+
+
+@pytest.mark.parametrize(
+    ("scale", "offset", "gain"),
+    [(1.0, -1.583, 0.845), (0.999, 40.0, 0.845), (0.999, -1.583, 0.05)],
+)
+def test_no_corroboration_from_different_or_weak_audio_fits(scale, offset, gain):
+    text = report("retimed", scale=0.999, offset=-1.125, review=True)
+    audio = report("unverifiable", scale=scale, offset=offset)
+    audio.details = {"overlap_gain": gain}
+    d = combine(text, audio)
+    assert d.review and "audio couldn't confirm" in d.reason
 
 
 def test_text_mismatch_is_flagged_for_review():
