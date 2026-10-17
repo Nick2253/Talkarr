@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0+cpu
+torchaudio==2.8.0+cpu
+speechbrain==1.0.3
+silero-vad==6.0.0
+flask==3.1.1
+gunicorn==23.0.0
+numpy==2.2.6
+requests==2.32.3
+huggingface_hub==0.34.4

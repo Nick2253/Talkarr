@@ -60,6 +60,23 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
 - Every write to the library goes through `talkarr/fileio.py`. It is atomic and
   preserves the original file's mode and owner.
 
+## Lab (experiments against the real library)
+
+```bash
+git push gitea <branch>          # Gitea runner (.gitea/workflows/lab.yml): tests, build,
+                                 # smoke test, push jethrik.nkcx.net/nkcx/talkarr:lab
+python3 scripts/lab.py python -m talkarr.eval sweep --sync-reference
+python3 scripts/lab.py --no-pull ls /media/movies      # skip the image pull
+python3 scripts/lab.py --user 0 sh -c "..."            # one-off maintenance as root
+```
+
+`scripts/lab.py` runs a command in the `talkarr-lab` service (stack `seastone-lab` on
+Steel, defined in the docker-compose repo) through Komodo `RunStackService`. Output comes
+back when the container exits. Media is mounted read-only; results and caches go to the
+`/lab` volume (`/lab/runs/*.json`, `/lab/cache/`). Runs are niced; Steel's CPU is shared
+with backups, so avoid needless full-library ffsubsync passes (the reference-sync cache
+makes reruns cheap).
+
 ## Architecture (current code)
 
 ```
@@ -84,8 +101,12 @@ Bazarr post-processing hook ──POST /process──▶ jobs table (SQLite) ◀
 | `notify.py` | Discord webhook |
 | `worker.py` | background job loop |
 
-Planned (see PLAN.md): `talkarr/forced/` (verification & sync pipeline), `talkarr/eval`
-(harness + perturbation suite), `talkarr-ml` service.
+| `media.py` | subtitle → video pairing |
+| `forced/` | forced-sub verification: `subtitles` (cue model), `anchors` (text matching), `fit` (robust offset/framerate fit), `verify` (verdicts) |
+| `eval/` | harness: `sweep`, `perturb`, reference sync cache (`python -m talkarr.eval`) |
+
+Planned (see PLAN.md): audio anchors (`talkarr-ml` service for VAD/LID on eezo, whisper
+transcription, LLM translation); wiring verdicts into the service.
 
 ## Bazarr integration (Phase 5, not configured yet)
 

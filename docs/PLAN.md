@@ -183,6 +183,29 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
 | **4 Productise** | Forced-sub job in the service; library sweep mode (dry run → apply); backups + revert; dashboard verdict view; piecewise fits. | Owner signs off on a reviewed sweep. |
 | **5 Integration hardening** | Appendix A remainder: Bazarr hook (correct command), optional blacklist/re-search, API auth/confinement, config validation, job recovery, docs. | Real Bazarr download processed end-to-end. |
 
+## 6a. Progress log
+
+**2026-10-16, Phase 0–2 (text path).**
+- Phase 0 done; lab working (`scripts/lab.py` → Komodo `RunStackService` → `talkarr-lab` on
+  Steel, media read-only; image built by the Gitea runner).
+- Text path implemented (`talkarr/forced/`): on the real Red October subs every
+  perturbation (shifts 0.5–60 s, PAL/24p scaling with and without shifts, dropped/junk
+  cues, mislabel) is detected and repaired to ~1 ms.
+- First library sweep (251 English forced subs, 219 with a full English sub, 59 s):
+  197 mislabelled, 14 retimed, 13 in sync, 11 "mismatch", 16 unverifiable.
+- What the sweep taught us (all fixed, with tests):
+  - *Jaws*: a 192-cue "forced" file was a 13-minute section of a full subtitle. A naive
+    fit "retimed" it by +7,487 s. Sections of full subtitles are now `mislabelled`.
+  - Most "mismatches" were full subtitles that don't translate the foreign dialogue
+    (John Wick 2, Atomic Blonde, Kill Bill 2, …). Missing lines are **not** evidence;
+    these are `unverifiable` until the audio path exists. `mismatch` now means "lines
+    found, timings inconsistent" (another cut, scrambled file).
+  - Retimes are judged against an **unsynced** full subtitle unless it is synced to the
+    audio first (`--sync-reference`, ffsubsync, cached). Large offsets (> 30 s),
+    framerate changes, and cues mapped outside the film are flagged `review`.
+- Consequence for Phase 3: of the 54 forced subs that aren't mislabelled, about half (27)
+  can't be verified from text alone; that is where the audio path is needed.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

@@ -1,0 +1,62 @@
+name: talkarr-ml build
+
+# Builds the talkarr-ml model service (ml/) on the Naquadah runner and pushes it to
+# the Jethrik registry; deployed to eezo by the docker-compose `talkarr-ml` stack.
+on:
+  push:
+    paths: ["ml/**", ".gitea/workflows/ml.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: ml-${{ gitea.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: jethrik.nkcx.net
+  IMAGE: jethrik.nkcx.net/nkcx/talkarr-ml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=traefik_proxy
+
+      - name: Registry credentials
+        run: |
+          mkdir -p ~/.docker
+          auth=$(printf '%s:%s' "${{ vars.REGISTRY_USER }}" "${{ secrets.REGISTRY_TOKEN }}" | base64 -w0)
+          printf '{"auths":{"%s":{"auth":"%s"}}}' "$REGISTRY" "$auth" > ~/.docker/config.json
+
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: ml
+          load: true
+          tags: talkarr-ml:smoke
+
+      # Loads both models and analyses a generated tone + silence clip end to end (ml/smoke.py).
+      - name: Smoke test
+        run: |
+          name="ml-smoke-${{ gitea.run_id }}"
+          docker run -d --name "$name" talkarr-ml:smoke
+          trap 'docker rm -f "$name" >/dev/null' EXIT
+          for i in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$name")
+            [ "$status" = healthy ] && break
+            [ "$status" = unhealthy ] && { docker logs "$name"; exit 1; }
+            sleep 3
+          done
+          docker exec "$name" python /app/smoke.py
+
+      - name: Push
+        uses: docker/build-push-action@v6
+        with:
+          context: ml
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:sha-${{ gitea.sha }}
