@@ -203,7 +203,9 @@ ENGLISH, FOREIGN, UNCERTAIN = "en", "foreign", "uncertain"
 class TimelineParams:
     foreign_below: float = 0.2  # p_en under this is foreign...
     english_above: float = 0.6  # ...over this is English; between is uncertain
-    min_confident_seconds: float = 1.2  # shorter regions can't be confident alone
+    # talkarr-ml scores short regions on >= 3 s of surrounding audio, so only very
+    # short blips are too thin to trust on their own.
+    min_confident_seconds: float = 0.5
     min_margin: float = 0.05  # top-2 gap below this: the model is guessing (noise, music)
     context_seconds: float = 20.0  # neighbours within this gap inform uncertain regions
 

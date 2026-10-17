@@ -146,10 +146,17 @@ def test_confident_regions_keep_their_labels():
 
 
 def test_short_region_inside_foreign_scene_becomes_foreign():
-    regions = [region(0, 3, 0.05), region(4, 4.8, 0.7), region(6, 9, 0.02)]
+    regions = [region(0, 3, 0.05), region(4, 4.3, 0.7), region(6, 9, 0.02)]
     tl = foreign_timeline(regions)
     assert tl.labels == [FOREIGN, FOREIGN, FOREIGN]
-    assert tl.foreign == [(0, 3), (4, 4.8), (6, 9)]
+    assert tl.foreign == [(0, 3), (4, 4.3), (6, 9)]
+
+
+def test_short_region_with_confident_scores_keeps_its_label():
+    """talkarr-ml scores short regions with surrounding context, so a 0.8 s line with
+    p_en 0.00 and a clear margin is foreign on its own."""
+    tl = foreign_timeline([region(137.6, 138.4, 0.0, (("fa", 0.92), ("ar", 0.03)))])
+    assert tl.labels == [FOREIGN]
 
 
 def test_isolated_confident_foreign_line_survives_english_scene():

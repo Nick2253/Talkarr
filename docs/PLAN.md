@@ -206,6 +206,25 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
 - Consequence for Phase 3: of the 54 forced subs that aren't mislabelled, about half (27)
   can't be verified from text alone; that is where the audio path is needed.
 
+**2026-10-16, synced sweep + audio path (Phase 3a).**
+- Sweep with full subtitles synced to the audio first (265 forced subs, 6.6 min):
+  205 mislabelled, 31 unverifiable, 15 retimed (8 flagged for review), 13 in sync,
+  1 mismatch (Man on Fire: lines found, timings inconsistent; likely another cut).
+- **Production bug found:** ffsubsync crashed on about 10 films because `webrtcvad` imports
+  `pkg_resources` and python:3.12 images ship without setuptools. That breaks regular-sub sync in
+  production too. Fixed (setuptools pinned, import smoke-tested in both CI pipelines).
+- After syncing, Star Wars and Return of the Jedi want a 23.976/25 rescale: ffsubsync found
+  the full sub (and so the forced sub from the same source) PAL-timed. Flagged for review;
+  the audio path is the independent check.
+- Audio path split in two:
+  - **3a, timing:** `talkarr-ml` returns speech regions with language scores. Talkarr labels
+    them, builds the foreign-speech timeline, and fits forced cues to it: the placed-cue count
+    finds the neighbourhood, then overlap seconds give the exact offset and framerate.
+  - **3b, content:** translation anchors (whisper + LLM) to confirm the cues *say* the
+    right thing. They catch a wrong film whose timing happens to fit.
+- `talkarr-ml` (Silero VAD + VoxLingua107, CPU, capped at 4 CPUs / 4 GB) is built on the Gitea
+  runner and deployed to eezo as stack `talkarr-ml`. DNS requested in infrastructure/dns#13.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from .anchors import has_foreign_annotations, text_anchors
-from .fit import IDENTITY_OFFSET, fit_anchors
+from .fit import fit_anchors
 from .subtitles import normalize
 
 # A "forced" subtitle with this many cues, and no reference to compare with,
@@ -182,7 +182,10 @@ AUDIO_MIN_PLACED_SHARE = 0.5
 # A retime must place clearly more cues than leaving the subtitle alone, or put
 # clearly more of the cue time on foreign speech.
 AUDIO_MIN_GAIN_SHARE = 0.2
-AUDIO_MIN_OVERLAP_GAIN = 0.1
+AUDIO_MIN_OVERLAP_GAIN = 0.02
+# Subtitles conventionally start ~0.1-0.2 s before speech, so the audio fit of a good
+# subtitle sits a little off zero; smaller offsets than this are left alone.
+AUDIO_IDENTITY_OFFSET = 0.3
 # Below this much foreign speech the film gives the audio path nothing to hold on to
 # (e.g. forced subs that are all signs or sign language).
 AUDIO_MIN_FOREIGN_SPANS = 3
@@ -215,7 +218,7 @@ def verify_audio(forced, timeline_fit, foreign_spans):
     report.offset = round(timeline_fit.offset, 3)
     report.details["placed_unchanged"] = timeline_fit.placed_identity
 
-    moved = timeline_fit.scale != 1.0 or abs(timeline_fit.offset) > IDENTITY_OFFSET
+    moved = timeline_fit.scale != 1.0 or abs(timeline_fit.offset) > AUDIO_IDENTITY_OFFSET
     better = timeline_fit.overlap > (1 + AUDIO_MIN_OVERLAP_GAIN) * timeline_fit.overlap_identity
     report.details["overlap"] = timeline_fit.overlap
     report.details["overlap_unchanged"] = timeline_fit.overlap_identity
