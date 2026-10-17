@@ -12,7 +12,6 @@ Exit status is 0 only if Komodo reports success.
 
 import argparse
 import json
-import os
 import sys
 import time
 import urllib.request
@@ -25,8 +24,8 @@ SERVICE = "talkarr-lab"
 def load_env(path=ENV_FILE):
     env = {}
     with open(path) as f:
-        for line in f:
-            line = line.strip()
+        for raw in f:
+            line = raw.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
