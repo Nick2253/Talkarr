@@ -50,12 +50,14 @@ def combine(text=None, audio=None):
             # Two independent methods, same correction: the framerate/large-offset
             # review flag exists to catch a wrong fit, which this rules out.
             decision.review = False
-            decision.reason = f"{_strip_review(text.reason)}; audio agrees ({audio.reason})"
+            decision.reason = (
+                f"{_strip_review(text.reason)}; audio agrees ({_strip_review(audio.reason)})"
+            )
         elif _broadly_agree(text, audio, gap):
             decision.review = False
             decision.reason = (
                 f"{_strip_review(text.reason)}; audio broadly agrees (same direction, cues "
-                f"within {gap:.1f}s; text fit is the precise one): {audio.reason}"
+                f"within {gap:.1f}s; text fit is the precise one): {_strip_review(audio.reason)}"
             )
         else:
             decision.review = True

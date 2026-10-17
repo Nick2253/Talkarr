@@ -60,9 +60,16 @@ def test_broad_agreement_star_wars():
         reason="29 lines (large offset or framerate change: review)",
     )
     text.residual_p90 = 0.173
-    d = combine(text, report("retimed", scale=0.96, offset=-4.31, reason="26/30 cues"))
+    audio = report(
+        "retimed",
+        scale=0.96,
+        offset=-4.31,
+        reason="26/30 cues (large offset or framerate change: review)",
+    )
+    d = combine(text, audio)
     assert d.verdict == Verdict.RETIMED and not d.review
     assert d.scale == 0.95904 and "broadly agrees" in d.reason
+    assert "review" not in d.reason
 
 
 def test_broad_agreement_requires_a_precise_text_fit():

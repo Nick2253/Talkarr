@@ -260,6 +260,24 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
 - Next: a small real batch (Red October, Spy Game, Star Wars, Jaws, 10 Things I Hate About
   You) reviewed with the owner before widening.
 
+**2026-10-17, first real batch in production (report-only).** Five films, forced subs only:
+
+| Film | Verdict | Evidence |
+|------|---------|----------|
+| The Hunt for Red October | in_sync | 28/28 lines match the synced full sub; audio agrees (23/28 cues on foreign speech, chance 17) |
+| Spy Game | retimed | text: 24→23.976, −1.12 s (26 lines); audio alone below the chance bar, but its best fit is the same correction (0.999, −1.58 s, +84 % cue time on speech) |
+| Star Wars | retimed | text: 25→23.976, −0.90 s (29/30 lines); audio: 25→24, −4.31 s, cues within 2.8 s; ffsubsync also rescaled the full sub by 0.959 |
+| Jaws | mislabelled | 192 cues reproducing 80 % of the full sub within their span |
+| 10 Things I Hate About You | mislabelled | 1,191 cues |
+
+All five verdicts are right. Two framerate fixes were first flagged for review although
+independent evidence supported them, so `decide.combine` now counts agreement:
+- **exact:** cues within 1 s;
+- **broad:** same direction, within 5 s, and a precise text fit (p90 residual ≤ 0.25 s);
+- **corroborating:** an inconclusive audio fit landing on the same correction.
+
+In these cases the review flag is cleared and the reason states the evidence.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`
