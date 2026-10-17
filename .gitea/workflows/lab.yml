@@ -24,7 +24,7 @@ jobs:
 
       - name: Lint and test
         run: |
-          uv venv -q -p 3.12 .venv
+          uv venv -q -p 3.12 --managed-python .venv
           uv pip install -q -p .venv -r requirements-dev.txt
           .venv/bin/ruff check .
           .venv/bin/ruff format --check .
