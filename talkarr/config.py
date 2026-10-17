@@ -20,3 +20,9 @@ class Config:
     GENERATE_ENABLED = os.environ.get("GENERATE_ENABLED", "false").lower() == "true"
     SYNC_SCORE_THRESHOLD = float(os.environ.get("SYNC_SCORE_THRESHOLD", "0.4"))
     PATH_MAPPING = os.environ.get("PATH_MAPPING", "")
+    # Report-only unless explicitly turned off: jobs record what they would do and the
+    # library is never written. Defaults to true so a misconfigured deploy stays safe.
+    DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+    FORCED_VERIFY_ENABLED = os.environ.get("FORCED_VERIFY_ENABLED", "true").lower() == "true"
+    ML_URL = os.environ.get("TALKARR_ML_URL", "")
+    CACHE_DIR = os.environ.get("CACHE_DIR", "/data/cache")

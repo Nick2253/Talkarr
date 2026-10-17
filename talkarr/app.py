@@ -1,3 +1,5 @@
+import contextlib
+import json
 import logging
 import os
 import uuid
@@ -5,7 +7,15 @@ import uuid
 from flask import Flask, jsonify, render_template_string, request
 
 from .config import Config
-from .db import JobStatus, create_job, get_job_by_subtitle, get_recent_jobs, get_stats, init_db
+from .db import (
+    JobStatus,
+    create_job,
+    get_job,
+    get_job_by_subtitle,
+    get_recent_jobs,
+    get_stats,
+    init_db,
+)
 from .media import find_video_for_subtitle as _find_media_for_subtitle
 from .paths import translate_path
 from .worker import start_worker
@@ -62,10 +72,27 @@ DASHBOARD_PAGE = """<!doctype html>
   .score-warn { color: var(--yellow); }
   .score-bad { color: var(--red); }
   .empty { text-align: center; padding: 3rem; color: var(--dim); }
+  .banner { background: rgba(241,196,15,0.12); border: 1px solid rgba(241,196,15,0.4);
+            color: var(--yellow); border-radius: 8px; padding: 0.6rem 1rem; margin-bottom: 1.5rem;
+            font-size: 0.85rem; }
+  .filters { margin-bottom: 1rem; font-size: 0.8rem; color: var(--dim); }
+  .filters a { color: var(--blue); margin-right: 0.8rem; text-decoration: none; }
+  .filters a.on { color: var(--text); font-weight: 700; }
+  .verdict { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600; }
+  .verdict-in_sync { background: rgba(46,204,113,0.15); color: var(--green); }
+  .verdict-retimed { background: rgba(52,152,219,0.15); color: var(--blue); }
+  .verdict-mislabelled, .verdict-mismatch { background: rgba(231,76,60,0.15); color: var(--red); }
+  .verdict-unverifiable { background: rgba(136,136,136,0.15); color: var(--dim); }
+  .review { color: var(--yellow); font-size: 0.7rem; font-weight: 700; margin-left: 0.3rem; }
+  .status-flagged { background: rgba(241,196,15,0.15); color: var(--yellow); }
+  .status-verifying { background: rgba(52,152,219,0.15); color: var(--blue); }
+  .reason { font-size: 0.75rem; color: var(--dim); max-width: 420px; }
+  @media (max-width: 800px) { body { padding: 1rem; } .hide-sm { display: none; } }
 </style>
 </head>
 <body>
   <h1>Talkarr</h1>
+  {% if dry_run %}<div class="banner"><strong>DRY RUN</strong>: jobs record what they would do; nothing in the library is changed.</div>{% endif %}
   <div class="stats">
     <div class="stat">
       <div class="stat-value">{{ stats.get('total', 0) }}</div>
@@ -76,13 +103,21 @@ DASHBOARD_PAGE = """<!doctype html>
       <div class="stat-label">Completed</div>
     </div>
     <div class="stat">
-      <div class="stat-value" style="color: var(--red)">{{ stats.get('failed', 0) + stats.get('blacklisted', 0) }}</div>
-      <div class="stat-label">Failed</div>
+      <div class="stat-value" style="color: var(--red)">{{ stats.get('failed', 0) + stats.get('blacklisted', 0) + stats.get('flagged', 0) }}</div>
+      <div class="stat-label">Failed / flagged</div>
     </div>
     <div class="stat">
       <div class="stat-value" style="color: var(--blue)">{{ stats.get('pending', 0) }}</div>
       <div class="stat-label">Pending</div>
     </div>
+  </div>
+  <div class="filters">
+    Show:
+    <a href="/" class="{{ 'on' if not verdict and not review }}">all</a>
+    <a href="/?review=1" class="{{ 'on' if review }}">needs review</a>
+    {% for v in ['retimed', 'mismatch', 'mislabelled', 'in_sync', 'unverifiable'] %}
+      <a href="/?verdict={{ v }}" class="{{ 'on' if verdict == v }}">{{ v }}</a>
+    {% endfor %}
   </div>
   {% if jobs %}
   <table>
@@ -91,9 +126,10 @@ DASHBOARD_PAGE = """<!doctype html>
         <th>File</th>
         <th>Type</th>
         <th>Status</th>
-        <th>Score</th>
-        <th>Sync Offset</th>
-        <th>Actions</th>
+        <th>Forced verdict</th>
+        <th class="hide-sm">Score</th>
+        <th class="hide-sm">Sync Offset</th>
+        <th class="hide-sm">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -103,14 +139,20 @@ DASHBOARD_PAGE = """<!doctype html>
         <td><span class="type type-{{ job.sub_type or 'unknown' }}">{{ job.sub_type or '?' }}</span></td>
         <td><span class="status status-{{ job.status }}">{{ job.status }}</span></td>
         <td>
+          {% if job.verdict %}
+            <a href="/jobs/{{ job.id }}" style="text-decoration:none"><span class="verdict verdict-{{ job.verdict }}">{{ job.verdict }}</span></a>{% if job.review %}<span class="review">REVIEW</span>{% endif %}
+            <div class="reason">{{ job.reason or '' }}</div>
+          {% else %}-{% endif %}
+        </td>
+        <td class="hide-sm">
           {% if job.validation_score is not none %}
             <span class="score {% if job.validation_score >= 0.7 %}score-good{% elif job.validation_score >= 0.4 %}score-warn{% else %}score-bad{% endif %}">
               {{ "%.0f"|format(job.validation_score * 100) }}%
             </span>
           {% else %}-{% endif %}
         </td>
-        <td>{{ "%.2fs"|format(job.sync_offset) if job.sync_offset is not none else '-' }}</td>
-        <td style="font-size: 0.75rem; color: var(--dim); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+        <td class="hide-sm">{{ "%.2fs"|format(job.sync_offset) if job.sync_offset is not none else '-' }}</td>
+        <td class="hide-sm" style="font-size: 0.75rem; color: var(--dim); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
             title="{{ job.actions_taken or '' }}">
           {{ job.actions_taken or '-' }}
         </td>
@@ -119,7 +161,7 @@ DASHBOARD_PAGE = """<!doctype html>
     </tbody>
   </table>
   {% else %}
-  <div class="empty">No jobs yet. Waiting for Bazarr to send subtitles.</div>
+  <div class="empty">No jobs{% if verdict or review %} match this filter{% else %} yet{% endif %}.</div>
   {% endif %}
 </body>
 </html>
@@ -141,9 +183,30 @@ def health():
 
 @app.route("/")
 def dashboard():
-    stats = get_stats()
-    jobs = get_recent_jobs(limit=100)
-    return render_template_string(DASHBOARD_PAGE, stats=stats, jobs=jobs)
+    verdict = request.args.get("verdict") or None
+    review = True if request.args.get("review") == "1" else None
+    jobs = [_with_reason(j) for j in get_recent_jobs(limit=300, verdict=verdict, review=review)]
+    return render_template_string(
+        DASHBOARD_PAGE,
+        stats=get_stats(),
+        jobs=jobs,
+        verdict=verdict,
+        review=review,
+        dry_run=Config.DRY_RUN,
+    )
+
+
+def _with_reason(job):
+    report = json.loads(job["report"]) if job.get("report") else {}
+    job["reason"] = report.get("reason", "")
+    return job
+
+
+def _within_media(path):
+    """True if ``path`` resolves inside MEDIA_PATH; Talkarr never touches files elsewhere."""
+    root = os.path.realpath(Config.MEDIA_PATH)
+    target = os.path.realpath(path)
+    return target == root or target.startswith(root + os.sep)
 
 
 @app.route("/process", methods=["POST"])
@@ -159,12 +222,16 @@ def process():
 
     if not subtitle_path:
         return jsonify({"error": "missing subtitle path"}), 400
+    if not _within_media(subtitle_path):
+        return jsonify({"error": f"subtitle is outside {Config.MEDIA_PATH}"}), 400
 
     existing = get_job_by_subtitle(subtitle_path)
     if existing and existing["status"] in (
         JobStatus.PENDING,
-        JobStatus.SYNCING,
+        JobStatus.CLASSIFYING,
         JobStatus.CLEANING,
+        JobStatus.SYNCING,
+        JobStatus.VERIFYING,
         JobStatus.VALIDATING,
     ):
         log.info("Duplicate request for %s — ignoring", subtitle_path)
@@ -187,6 +254,10 @@ def bulk_scan():
     directory = payload.get("directory", Config.MEDIA_PATH)
     sub_filter = payload.get("filter", "all")  # all, regular, forced, hi
 
+    requeue = bool(payload.get("requeue", False))
+
+    if not _within_media(directory):
+        return jsonify({"error": f"directory is outside {Config.MEDIA_PATH}"}), 400
     if not os.path.isdir(directory):
         return jsonify({"error": f"Directory not found: {directory}"}), 400
 
@@ -214,7 +285,7 @@ def bulk_scan():
                 continue
 
             existing = get_job_by_subtitle(subtitle_path)
-            if existing and existing["status"] == JobStatus.COMPLETED:
+            if existing and existing["status"] == JobStatus.COMPLETED and not requeue:
                 continue
 
             job_id = str(uuid.uuid4())[:8]
@@ -228,8 +299,26 @@ def bulk_scan():
 
 @app.route("/jobs")
 def list_jobs():
-    jobs = get_recent_jobs()
-    return jsonify(jobs)
+    review = {"1": True, "0": False}.get(request.args.get("review", ""))
+    limit = min(int(request.args.get("limit", 100)), 1000)
+    jobs = get_recent_jobs(limit=limit, verdict=request.args.get("verdict"), review=review)
+    return jsonify([_decoded(j) for j in jobs])
+
+
+@app.route("/jobs/<job_id>")
+def job_detail(job_id):
+    job = get_job(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(_decoded(job))
+
+
+def _decoded(job):
+    for key in ("report", "actions_taken", "validation_notes"):
+        if job.get(key):
+            with contextlib.suppress(ValueError):
+                job[key] = json.loads(job[key])
+    return job
 
 
 @app.route("/stats")

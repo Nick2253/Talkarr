@@ -3,20 +3,7 @@
 import os
 from dataclasses import dataclass
 
-SUB_EXT = ".srt"
-FORCED_TAGS = (".forced", ".foreign")
-ENGLISH_TAGS = (".en", ".eng", ".english")
-# Preference order for the full English reference subtitle.
-REFERENCE_SUFFIXES = (
-    ".en.srt",
-    ".eng.srt",
-    ".english.srt",
-    ".en.sdh.srt",
-    ".en.hi.srt",
-    ".en.cc.srt",
-    ".eng.sdh.srt",
-    ".eng.hi.srt",
-)
+from ..media import english_forced_stem, find_reference_subtitle
 
 
 @dataclass(frozen=True)
@@ -30,35 +17,9 @@ def find_items(root):
     """Every English forced subtitle under ``root``, with its full-subtitle sibling."""
     items = []
     for directory, _, files in os.walk(root):
-        names = set(files)
         for name in sorted(files):
-            stem = _english_forced_stem(name)
-            if stem is None:
+            if english_forced_stem(name) is None:
                 continue
-            reference = next(
-                (
-                    os.path.join(directory, stem + s)
-                    for s in REFERENCE_SUFFIXES
-                    if stem + s in names
-                ),
-                None,
-            )
-            items.append(
-                Item(os.path.basename(directory), os.path.join(directory, name), reference)
-            )
+            path = os.path.join(directory, name)
+            items.append(Item(os.path.basename(directory), path, find_reference_subtitle(path)))
     return items
-
-
-def _english_forced_stem(name):
-    """``Movie.en.forced.srt`` -> ``Movie``; ``None`` if not an English forced sub."""
-    lower = name.lower()
-    if not lower.endswith(SUB_EXT):
-        return None
-    base = lower[: -len(SUB_EXT)]
-    for forced in FORCED_TAGS:
-        if base.endswith(forced):
-            rest = base[: -len(forced)]
-            for lang in ENGLISH_TAGS:
-                if rest.endswith(lang):
-                    return name[: len(rest) - len(lang)]
-    return None

@@ -41,6 +41,10 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
 | `MEDIA_PATH` | `/media` | Media root for bulk scans |
 | `SYNC_ENABLED` | `true` | Enable ffsubsync |
 | `CLEAN_ENABLED` | `true` | Enable ad/encoding cleaning |
+| `DRY_RUN` | `true` | Report only: record what would change, never write to the library |
+| `FORCED_VERIFY_ENABLED` | `true` | Verify forced subtitles and record a verdict |
+| `TALKARR_ML_URL` | | talkarr-ml (speech detection + language ID) base URL; enables the audio check |
+| `CACHE_DIR` | `/data/cache` | Evidence caches |
 
 ## Endpoints
 
@@ -49,8 +53,9 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
 | `GET` | `/` | Dashboard |
 | `GET` | `/health` | Health check |
 | `POST` | `/process` | Bazarr post-processing webhook |
-| `POST` | `/bulk` | Trigger bulk library scan |
-| `GET` | `/jobs` | Recent jobs (JSON) |
+| `POST` | `/bulk` | Queue a library scan: `{"directory": "/media/movies/Film (Year)", "filter": "forced", "requeue": false}` |
+| `GET` | `/jobs` | Recent jobs (JSON); `?verdict=retimed&review=1` |
+| `GET` | `/jobs/<id>` | One job with its full verification report |
 | `GET` | `/stats` | Job statistics (JSON) |
 
 ## Docker

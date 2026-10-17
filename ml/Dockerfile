@@ -1,4 +1,4 @@
-# talkarr-ml: VAD + spoken language ID for Talkarr. Deployed on eezo (AI host).
+# talkarr-ml: VAD + spoken language ID for Talkarr (CPU). Runs in the seastone stack on Steel.
 FROM python:3.12-slim
 
 RUN apt-get update && \

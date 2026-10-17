@@ -44,7 +44,13 @@ def test_jobs_and_stats(client):
 # --- /process ----------------------------------------------------------------
 
 
-def test_process_queues_job(client):
+@pytest.fixture
+def m_root(monkeypatch):
+    """Webhook tests post paths under /m."""
+    monkeypatch.setattr(Config, "MEDIA_PATH", "/m")
+
+
+def test_process_queues_job(client, m_root):
     r = client.post(
         "/process", json={"subtitle": "/m/a.en.srt", "media": "/m/a.mkv", "language": "en"}
     )
@@ -57,6 +63,7 @@ def test_process_queues_job(client):
 
 def test_process_translates_paths(client, monkeypatch):
     monkeypatch.setattr(Config, "PATH_MAPPING", "/data:/media")
+    monkeypatch.setattr(Config, "MEDIA_PATH", "/media")
     r = client.post("/process", json={"subtitle": "/data/a.srt", "media": "/data/a.mkv"})
     job = db.get_job(r.get_json()["job_id"])
     assert job["subtitle_path"] == "/media/a.srt"
@@ -69,20 +76,20 @@ def test_process_rejects_bad_payload(client, payload):
     assert r.status_code == 400
 
 
-def test_process_deduplicates_in_flight_jobs(client):
+def test_process_deduplicates_in_flight_jobs(client, m_root):
     first = client.post("/process", json={"subtitle": "/m/a.srt"}).get_json()
     second = client.post("/process", json={"subtitle": "/m/a.srt"}).get_json()
     assert second == {"status": "duplicate", "job_id": first["job_id"]}
 
 
-def test_process_requeues_finished_subtitle(client):
+def test_process_requeues_finished_subtitle(client, m_root):
     first = client.post("/process", json={"subtitle": "/m/a.srt"}).get_json()
     db.update_job_status(first["job_id"], JobStatus.COMPLETED)
     second = client.post("/process", json={"subtitle": "/m/a.srt"}).get_json()
     assert second["status"] == "queued" and second["job_id"] != first["job_id"]
 
 
-def test_process_requires_secret_when_configured(client, monkeypatch):
+def test_process_requires_secret_when_configured(client, m_root, monkeypatch):
     monkeypatch.setattr(Config, "WEBHOOK_SECRET", "s3cret")
     payload = {"subtitle": "/m/a.srt"}
     assert client.post("/process", json=payload).status_code == 401
@@ -189,3 +196,59 @@ def test_media_pairing_single_video_fallback(tmp_path):
 )
 def test_extract_language(name, lang):
     assert _extract_language(name) == lang
+
+
+# --- confinement, review UI ------------------------------------------------------
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "/m/../etc/x.srt", "/mx/a.srt"])
+def test_process_rejects_paths_outside_media(client, m_root, path):
+    r = client.post("/process", json={"subtitle": path})
+    assert r.status_code == 400
+    assert "outside" in r.get_json()["error"]
+
+
+def test_bulk_rejects_directory_outside_media(client, tmp_path):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    r = client.post("/bulk", json={"directory": str(outside)})
+    assert r.status_code == 400
+
+
+def test_bulk_requeue(client, library):
+    bulk(client, library)
+    for job in db.get_recent_jobs():
+        db.update_job_status(job["id"], JobStatus.COMPLETED)
+    r = client.post("/bulk", json={"directory": str(library), "requeue": True})
+    assert r.get_json()["count"] == 5
+
+
+def test_dashboard_dry_run_banner_and_verdicts(client, monkeypatch):
+    monkeypatch.setattr(Config, "DRY_RUN", True)
+    db.create_job("a", "/m/A.en.forced.srt", "/m/A.mkv", "en")
+    db.update_job_report("a", "retimed", True, {"reason": "26 lines line up after offset"})
+    db.create_job("b", "/m/B.en.forced.srt", "/m/B.mkv", "en")
+    db.update_job_report("b", "in_sync", False, {"reason": "fine"})
+
+    page = client.get("/").data.decode()
+    assert "DRY RUN" in page
+    assert "REVIEW" in page and "26 lines line up" in page
+
+    page = client.get("/?review=1").data.decode()
+    assert "A.en.forced.srt" in page and "B.en.forced.srt" not in page
+    page = client.get("/?verdict=in_sync").data.decode()
+    assert "B.en.forced.srt" in page and "A.en.forced.srt" not in page
+    assert "match this filter" in client.get("/?verdict=mismatch").data.decode()
+
+
+def test_jobs_filters_and_detail(client):
+    db.create_job("a", "/m/A.en.forced.srt", "/m/A.mkv", "en")
+    db.update_job_report("a", "mislabelled", False, {"reason": "full subtitle", "forced_cues": 900})
+    db.create_job("b", "/m/B.en.srt", "/m/B.mkv", "en")
+
+    assert [j["id"] for j in client.get("/jobs?verdict=mislabelled").get_json()] == ["a"]
+    assert client.get("/jobs?review=1").get_json() == []
+    assert {j["id"] for j in client.get("/jobs?review=0").get_json()} == {"a", "b"}
+    detail = client.get("/jobs/a").get_json()
+    assert detail["report"]["forced_cues"] == 900
+    assert client.get("/jobs/nope").status_code == 404

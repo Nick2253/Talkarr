@@ -37,6 +37,10 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "MEDIA_PATH", str(tmp_path / "media"))
     monkeypatch.setattr(Config, "SYNC_ENABLED", True)
     monkeypatch.setattr(Config, "CLEAN_ENABLED", True)
+    monkeypatch.setattr(Config, "DRY_RUN", False)
+    monkeypatch.setattr(Config, "FORCED_VERIFY_ENABLED", False)
+    monkeypatch.setattr(Config, "ML_URL", "")
+    monkeypatch.setattr(Config, "CACHE_DIR", str(tmp_path / "cache"))
     db._local.db = None
     paths._mappings = None
     db.init_db()

@@ -104,7 +104,7 @@ def test_title_filter_and_bad_files(library, capsys):
 def test_sweep_with_reference_sync_uses_synced_reference(library, tmp_path, monkeypatch, capsys):
     """The synced full subtitle (here: shifted 3 s by a fake ffsubsync) is what the
     forced subtitle is judged against; results are cached across runs."""
-    from talkarr.eval import refsync
+    from talkarr.forced import sources as refsync
 
     calls = []
 
@@ -134,7 +134,7 @@ def test_sweep_with_reference_sync_uses_synced_reference(library, tmp_path, monk
 def test_reference_sync_failure_keeps_unsynced_verdict(library, tmp_path, monkeypatch, capsys):
     from types import SimpleNamespace
 
-    from talkarr.eval import refsync
+    from talkarr.forced import sources as refsync
 
     monkeypatch.setattr(
         refsync,
@@ -162,6 +162,7 @@ def test_failed_reference_sync_is_retried(library, tmp_path, monkeypatch):
 
     from talkarr.eval import refsync
     from talkarr.eval.library import find_items
+    from talkarr.forced import sources
 
     item = next(i for i in find_items(str(library / "movies")) if i.reference)
     calls = []
@@ -170,7 +171,7 @@ def test_failed_reference_sync_is_retried(library, tmp_path, monkeypatch):
         calls.append(1)
         return SimpleNamespace(success=False, offset=None, framerate=None, score=None, error="x")
 
-    monkeypatch.setattr(refsync, "run_ffsubsync", failing)
+    monkeypatch.setattr(sources, "run_ffsubsync", failing)
     cache = str(tmp_path / "cache")
     assert refsync.synced_reference(item, cache)[0] is None
     assert refsync.synced_reference(item, cache)[0] is None
@@ -217,17 +218,18 @@ def test_audio_cli_reports_analysis_errors(library, monkeypatch, capsys):
 def test_film_regions_extracts_analyses_and_caches(library, tmp_path, monkeypatch):
     from talkarr.eval import audioeval
     from talkarr.eval.library import find_items
+    from talkarr.forced import sources
     from talkarr.forced.audio import AudioStream
 
     item = next(i for i in find_items(str(library / "movies")) if i.reference)
     calls = []
     monkeypatch.setattr(
-        audioeval.audio,
+        sources.audio,
         "probe_audio_streams",
         lambda v: [AudioStream(1, 6, "5.1(side)", "eng", "")],
     )
     monkeypatch.setattr(
-        audioeval.audio,
+        sources.audio,
         "extract_dialogue",
         lambda video, stream, out: calls.append(("extract", stream.index)) or out,
     )
@@ -239,7 +241,7 @@ def test_film_regions_extracts_analyses_and_caches(library, tmp_path, monkeypatc
             "regions": [{"start": 1.0, "end": 2.0, "p_en": 0.1, "top": [["ru", 0.8], ["uk", 0.1]]}],
         }
 
-    monkeypatch.setattr(audioeval.audio, "analyze", analyze)
+    monkeypatch.setattr(sources.audio, "analyze", analyze)
     cache = str(tmp_path / "audio-cache")
 
     regions, info = audioeval.film_regions(item, cache, "http://ml")
@@ -254,11 +256,12 @@ def test_film_regions_extracts_analyses_and_caches(library, tmp_path, monkeypatc
 def test_film_regions_without_video_or_audio(tmp_path, monkeypatch):
     from talkarr.eval import audioeval
     from talkarr.eval.library import Item
+    from talkarr.forced import sources
 
     sub = tmp_path / "Lonely.en.forced.srt"
     sub.write_text("")
     item = Item("Lonely", str(sub), None)
     assert audioeval.film_regions(item, str(tmp_path), "x")[1]["error"].startswith("no video")
     (tmp_path / "Lonely.mkv").write_bytes(b"")
-    monkeypatch.setattr(audioeval.audio, "probe_audio_streams", lambda v: [])
+    monkeypatch.setattr(sources.audio, "probe_audio_streams", lambda v: [])
     assert audioeval.film_regions(item, str(tmp_path), "x")[1]["error"] == "no usable audio stream"

@@ -1,7 +1,7 @@
 name: talkarr-ml build
 
 # Builds the talkarr-ml model service (ml/) on the Naquadah runner and pushes it to
-# the Jethrik registry; deployed to eezo by the docker-compose `talkarr-ml` stack.
+# the Jethrik registry; runs as the `talkarr-ml` service in the docker-compose seastone stack.
 on:
   push:
     paths: ["ml/**", ".gitea/workflows/ml.yml"]

@@ -86,10 +86,11 @@ class CleanResult:
         return self.ads_removed > 0 or self.encoding_fixed or self.bom_stripped or self.reencoded
 
 
-def clean_subtitle(subtitle_path):
+def clean_subtitle(subtitle_path, write=True):
     """Clean a subtitle file in place: fix encoding, strip BOM, remove ads.
 
-    The file is rewritten as UTF-8 (no BOM) only if something changed.
+    The file is rewritten as UTF-8 (no BOM) only if something changed and ``write``
+    is true; with ``write=False`` the result reports what would change.
     """
     if not os.path.isfile(subtitle_path):
         return CleanResult(error=f"File not found: {subtitle_path}")
@@ -140,7 +141,7 @@ def clean_subtitle(subtitle_path):
             source_encoding=source_encoding,
         )
 
-        if result.changed:
+        if result.changed and write:
             atomic_write_text(subtitle_path, _compose(subs))
             log.info(
                 "Cleaned %s: %d ads removed, encoding_fixed=%s, source_encoding=%s",

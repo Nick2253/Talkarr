@@ -14,6 +14,8 @@ class JobStatus:
     SYNCING = "syncing"
     CLEANING = "cleaning"
     VALIDATING = "validating"
+    VERIFYING = "verifying"
+    FLAGGED = "flagged"  # failed validation; in dry-run nothing is blacklisted
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -59,6 +61,34 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
             CREATE INDEX IF NOT EXISTS idx_jobs_subtitle ON jobs(subtitle_path);
         """)
+        _migrate(db)
+
+
+# Columns added after the first release; added in place on existing databases.
+_ADDED_COLUMNS = {
+    "verdict": "TEXT",  # forced-subtitle verdict (in_sync, retimed, mislabelled, ...)
+    "review": "INTEGER DEFAULT 0",  # verdict is plausible but needs a human look
+    "report": "TEXT",  # JSON: reason, proposed correction, evidence details
+}
+
+
+def _migrate(db):
+    existing = {row["name"] for row in db.execute("PRAGMA table_info(jobs)")}
+    for column, decl in _ADDED_COLUMNS.items():
+        if column not in existing:
+            db.execute(f"ALTER TABLE jobs ADD COLUMN {column} {decl}")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_verdict ON jobs(verdict)")
+    db.commit()
+
+
+def update_job_report(job_id, verdict, review, report):
+    now = time.time()
+    with get_db() as db:
+        db.execute(
+            "UPDATE jobs SET verdict = ?, review = ?, report = ?, updated_at = ? WHERE id = ?",
+            (verdict, 1 if review else 0, json.dumps(report), now, job_id),
+        )
+        db.commit()
 
 
 def create_job(job_id, subtitle_path, media_path, language, source="bazarr"):
@@ -147,9 +177,19 @@ def update_job_actions(job_id, actions):
         db.commit()
 
 
-def get_recent_jobs(limit=50):
+def get_recent_jobs(limit=50, verdict=None, review=None):
+    clauses, params = [], []
+    if verdict:
+        clauses.append("verdict = ?")
+        params.append(verdict)
+    if review is not None:
+        clauses.append("review = ?")
+        params.append(1 if review else 0)
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     rows = (
-        get_db().execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        get_db()
+        .execute(f"SELECT * FROM jobs {where}ORDER BY created_at DESC LIMIT ?", (*params, limit))
+        .fetchall()
     )
     return [dict(r) for r in rows]
 

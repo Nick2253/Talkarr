@@ -1,7 +1,8 @@
 """talkarr-ml: the models Talkarr needs but doesn't run itself.
 
-A small, stateless HTTP service, deployed on eezo (the AI host) so the main Talkarr
-container never runs models. One endpoint does the work:
+A small, stateless, CPU-only HTTP service, deployed beside Talkarr in the seastone stack
+on Steel (internal: http://talkarr-ml:8000), so the main Talkarr container never loads
+models. One endpoint does the work:
 
     POST /v1/analyze   multipart "audio": any ffmpeg-decodable audio (Talkarr sends
                        16 kHz mono Opus of the dialogue channel)

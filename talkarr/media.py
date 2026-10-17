@@ -31,3 +31,47 @@ def find_video_for_subtitle(subtitle_path):
         return os.path.join(directory, videos[0])
 
     return None
+
+
+SUB_EXT = ".srt"
+FORCED_TAGS = (".forced", ".foreign")
+ENGLISH_TAGS = (".en", ".eng", ".english")
+# Preference order for the full English reference subtitle.
+REFERENCE_SUFFIXES = (
+    ".en.srt",
+    ".eng.srt",
+    ".english.srt",
+    ".en.sdh.srt",
+    ".en.hi.srt",
+    ".en.cc.srt",
+    ".eng.sdh.srt",
+    ".eng.hi.srt",
+)
+
+
+def english_forced_stem(name):
+    """``Movie.en.forced.srt`` -> ``Movie``; ``None`` if not an English forced sub."""
+    lower = name.lower()
+    if not lower.endswith(SUB_EXT):
+        return None
+    base = lower[: -len(SUB_EXT)]
+    for forced in FORCED_TAGS:
+        if base.endswith(forced):
+            rest = base[: -len(forced)]
+            for lang in ENGLISH_TAGS:
+                if rest.endswith(lang):
+                    return name[: len(rest) - len(lang)]
+    return None
+
+
+def find_reference_subtitle(forced_path):
+    """The full English subtitle next to an English forced subtitle, or ``None``."""
+    directory, name = os.path.split(forced_path)
+    stem = english_forced_stem(name)
+    if stem is None:
+        return None
+    names = set(os.listdir(directory))
+    for suffix in REFERENCE_SUFFIXES:
+        if stem + suffix in names:
+            return os.path.join(directory, stem + suffix)
+    return None

@@ -43,7 +43,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--ml-url",
-        default=os.environ.get("TALKARR_ML_URL", "https://talkarr-ml.nkcx.net"),
+        default=os.environ.get("TALKARR_ML_URL", "http://talkarr-ml:8000"),
         help="talkarr-ml base URL (audio command)",
     )
     parser.add_argument(

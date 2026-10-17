@@ -89,7 +89,7 @@ split/merged cues) within a generous time window. Each match is an anchor
    Record stream index and time base.
 2. *Extract*: 16 kHz mono; `FC` only if the channel layout contains it, otherwise a
    downmix (bake-off: centre vs downmix recall).
-3. *VAD + LID* in `talkarr-ml` (eezo): speech regions with speech probability, and
+3. *VAD + LID* in `talkarr-ml` (seastone, Steel; CPU): speech regions with speech probability, and
    per-region language scores from overlapping analysis windows (so a short utterance is
    classified with nearby audio without merging whole scenes). States: English /
    foreign / **uncertain** / non-speech. Gates: speech probability, LID margin/entropy.
@@ -129,16 +129,16 @@ track legitimately includes signs, on-screen text and sign language.
 | Media | Steel `/mnt/SteelVolume01/media` → `/media` in Talkarr containers | input |
 | whisper.cpp large-v3-turbo | `https://llama.nkcx.net/v1/audio/transcriptions` (eezo 3060) | transcribe foreign spans |
 | LLMs (gemma4-26b, qwen3.6-27b, …) | `https://llama.nkcx.net/v1/chat/completions` (eezo V100) | translation, semantic matching |
-| `talkarr-ml` (new) | eezo, separate container, small HTTP API | VAD + LID models (Talkarr never runs models in its own container) |
+| `talkarr-ml` | seastone stack on Steel, internal `http://talkarr-ml:8000`, CPU only (4 CPUs / 4 GB cap) | VAD + LID models (Talkarr never loads models in its own container) |
 | `talkarr-lab` (new) | seastone stack on Steel, compose profile `lab`, media **read-only** | eval/experiment runs via Komodo `RunStackService` |
 | Gitea `NKCX/talkarr` + runner (Naquadah) | jethrik.nkcx.net | container builds/tests, `:lab` image in the Jethrik registry |
 | GitHub Actions | Nick2253/Talkarr | release path only: tests on PRs, one image build per push to `main` → GHCR → production |
 
-Constraints (owner, 2026-10-16): eezo is reserved for AI workloads (no builds, tests,
-media processing or experiments there; Talkarr reaches it only through AI APIs). No
-local container runtime on the dev box. GitHub Actions usage minimal. Pushing to `main`
-auto-deploys production (seastone auto-update), so `main` only receives work that was
-built and smoke-tested on Gitea first.
+Constraints (owner, 2026-10-16): eezo is only for workloads that need its GPUs (no builds,
+tests, media processing, experiments or CPU-only services; Talkarr reaches it only through AI
+APIs). No local container runtime on the dev box: container builds/tests run on the Gitea runner.
+GitHub Actions usage minimal. Pushing to `main` auto-deploys production (seastone auto-update),
+so `main` only receives work that was built and smoke-tested on Gitea first.
 
 Audio is extracted on Steel; only compressed mono audio goes to `talkarr-ml` and only
 short foreign-span clips go to whisper. Generation of anchors is a batch, low-priority
@@ -179,7 +179,7 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
 | **0 Foundation** ✅ (container check pending) | Tests (112, 94 % coverage), ruff, lean GitHub CI, multi-stage non-root image, critical file-safety fixes (Appendix A). | Image built + smoke-tested on the Gitea runner. |
 | **1 Lab** | Gitea repo + runner workflow building `:lab`; `talkarr-lab` service (profile `lab`, media read-only); `RunStackService` helper script. | A trivial command runs in `talkarr-lab` and sees `/media`. |
 | **2 Harness + text path** | `talkarr/forced/` (S0, S1, S3, S4), subtitle model/matching utilities, `talkarr.eval` with corpus + perturbation suite, first report; library dry-run sweep of S0. | Perturbation suite passes on films with a usable full sub; mislabel counts reviewed by owner. |
-| **3 Audio path** | `talkarr-ml` (VAD+LID API) on eezo; S2 (probe, extract, VAD/LID, profile, transcribe, translate, match); bake-offs (LID model, centre vs downmix, LLM). | Perturbation suite passes using audio anchors alone on the dev set; confirmed on held-out. |
+| **3 Audio path** | `talkarr-ml` (VAD+LID API, CPU, seastone on Steel); S2 (probe, extract, VAD/LID, profile, transcribe, translate, match); bake-offs (LID model, centre vs downmix, LLM). | Perturbation suite passes using audio anchors alone on the dev set; confirmed on held-out. |
 | **4 Productise** | Forced-sub job in the service; library sweep mode (dry run → apply); backups + revert; dashboard verdict view; piecewise fits. | Owner signs off on a reviewed sweep. |
 | **5 Integration hardening** | Appendix A remainder: Bazarr hook (correct command), optional blacklist/re-search, API auth/confinement, config validation, job recovery, docs. | Real Bazarr download processed end-to-end. |
 
@@ -223,7 +223,8 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
   - **3b, content:** translation anchors (whisper + LLM) to confirm the cues *say* the
     right thing. They catch a wrong film whose timing happens to fit.
 - `talkarr-ml` (Silero VAD + VoxLingua107, CPU, capped at 4 CPUs / 4 GB) is built on the Gitea
-  runner and deployed to eezo as stack `talkarr-ml`. DNS requested in infrastructure/dns#13.
+  runner. First deployed to eezo, then moved (owner: it needs no GPU) into the seastone stack on
+  Steel as an internal service; the DNS request (infrastructure/dns#13) was withdrawn.
 
 **2026-10-16, audio path on the corpus (10 films, audio alone, no full subtitle used).**
 - First run (placed-count fit): 124/160. Good on films with many forced cues, but on
@@ -246,6 +247,18 @@ workload: bounded concurrency, retries with back-off around llama-swap model swa
   corpus runs in about 20 s.
 - Next: translation anchors (Phase 3b). They should rescue the few-cue films and give
   content-level evidence that a subtitle belongs to the film.
+
+**2026-10-17, production + Phase 4 start (report-only service).**
+- Branch merged to GitHub `main`; GitHub CI (tests → one image build → smoke → GHCR) green;
+  seastone redeployed. `talkarr-ml` moved from eezo into seastone on Steel (owner: no GPU needed).
+- The service is now report-only (`DRY_RUN=true`, default): cleaning and ffsubsync run as trials
+  and record what they would change. Forced subtitles get the full verification (text path
+  against the synced full subtitle, audio path via talkarr-ml, combined by `forced/decide.py`).
+  The verdict, review flag, reason and evidence are stored on the job and shown on the
+  dashboard (filters: needs review / by verdict; `/jobs/<id>` for the evidence).
+- `/process` and `/bulk` only accept paths inside `MEDIA_PATH` (review finding A1).
+- Next: a small real batch (Red October, Spy Game, Star Wars, Jaws, 10 Things I Hate About
+  You) reviewed with the owner before widening.
 
 ## 7. Open questions for the owner
 

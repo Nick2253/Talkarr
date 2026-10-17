@@ -34,9 +34,9 @@ first.** Appendix A lists the code-review findings and which are fixed.
 
 ## Working rules (from the owner)
 
-- **Don't use eezo** for builds, tests, media processing or experiments; it is
-  reserved for AI workloads. Talkarr reaches it only via AI APIs (llama.nkcx.net
-  whisper/LLMs) and the planned `talkarr-ml` model container.
+- **eezo is only for workloads that need its GPUs.** No builds, tests, media processing,
+  experiments or CPU-only services there. Talkarr reaches it only through AI APIs
+  (llama.nkcx.net whisper/LLMs). `talkarr-ml` is CPU-only and runs in seastone on Steel.
 - The dev box has no container runtime. Container builds and tests run on the Gitea
   runner (Naquadah) or on Veridium.
 - Keep GitHub Actions usage minimal (tests on PRs, one image build per push to `main`).
@@ -84,12 +84,13 @@ Bazarr post-processing hook ──POST /process──▶ jobs table (SQLite) ◀
                                                    │
                                      worker thread (5 s poll)
                                                    ▼
-            classify ─▶ clean ─▶ sync (ffsubsync; forced subs skipped) ─▶ validate ─▶ verdict
+            classify ─▶ clean ─▶ sync (ffsubsync; forced subs skipped) ─▶ verify forced ─▶ validate
+            (DRY_RUN: clean/sync are computed, never written; forced verdicts are report-only)
 ```
 
 | Module | Role |
 |--------|------|
-| `app.py` | Flask app: dashboard, `/process`, `/bulk`, `/jobs`, `/stats`, `/health` |
+| `app.py` | Flask app: dashboard (verdict filters, DRY RUN banner), `/process`, `/bulk` (`directory`, `filter`, `requeue`), `/jobs` (`verdict`, `review`), `/jobs/<id>`, `/stats`, `/health`; paths confined to `MEDIA_PATH` |
 | `config.py` | Env-var config (`Config` class attributes) |
 | `db.py` | SQLite jobs table, `JobStatus`, `SubType` |
 | `classifier.py` | forced / HI / regular from the filename (Bazarr's language placeholders never carry `:forced`) |
@@ -102,10 +103,10 @@ Bazarr post-processing hook ──POST /process──▶ jobs table (SQLite) ◀
 | `worker.py` | background job loop |
 
 | `media.py` | subtitle → video pairing |
-| `forced/` | forced-sub verification: `subtitles` (cue model), `anchors` (text matching), `fit` (robust offset/framerate fit), `verify` (verdicts) |
+| `forced/` | forced-sub verification: `subtitles` (cue model), `anchors` + `fit` (text path), `audio` (timeline path), `verify` (verdicts), `decide` (combine), `sources` (cached evidence), `service` (one file end to end) |
 | `eval/` | harness: `sweep`, `perturb`, reference sync cache (`python -m talkarr.eval`) |
 
-Planned (see PLAN.md): audio anchors (`talkarr-ml` service for VAD/LID on eezo, whisper
+Planned (see PLAN.md): audio anchors (`talkarr-ml` service for VAD/LID in seastone on Steel, whisper
 transcription, LLM translation); wiring verdicts into the service.
 
 ## Bazarr integration (Phase 5, not configured yet)
@@ -129,9 +130,12 @@ must be disabled.
 | `BASE_URL` | `http://talkarr:9494` | External URL (unused) |
 | `MEDIA_PATH` | `/media` | Media root for bulk scans |
 | `SYNC_ENABLED` / `CLEAN_ENABLED` | `true` | Enable ffsubsync / cleaning |
-| `GENERATE_ENABLED` | `false` | Obsolete; ignored |
 | `SYNC_SCORE_THRESHOLD` | `0.4` | Unused (pass threshold is hard-coded; see Appendix A V1) |
 | `PATH_MAPPING` | – | e.g. `/data:/media`; `|`-separated pairs |
+| `DRY_RUN` | `true` | Report only: record what would change, never write the library (only `false` turns it off) |
+| `FORCED_VERIFY_ENABLED` | `true` | Verify forced subs (text + audio paths) and record a verdict |
+| `TALKARR_ML_URL` | – | talkarr-ml base URL (seastone: `http://talkarr-ml:8000`); empty disables the audio path |
+| `CACHE_DIR` | `/data/cache` | Synced references, audio analyses, trial-sync scratch |
 
 ## Related context
 
