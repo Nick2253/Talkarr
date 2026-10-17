@@ -105,7 +105,7 @@ def run_ffsubsync(subtitle_path, media_path, output_path, max_offset=120, timeou
         _remove(output_path)
         return SyncResult(
             success=False,
-            error=f"ffsubsync exit {result.returncode}: {result.stderr[:500]}",
+            error=f"ffsubsync exit {result.returncode}: {result.stderr[-500:].strip()}",
         )
     if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
         _remove(output_path)

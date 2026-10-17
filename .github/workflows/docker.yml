@@ -76,6 +76,7 @@ jobs:
         run: |
           IMAGE="${REGISTRY}/${IMAGE_NAME,,}:latest"
           docker run --rm --entrypoint ffsubsync "$IMAGE" --version
+          docker run --rm --entrypoint python "$IMAGE" -c "import webrtcvad, auditok"
           docker run -d --name smoke "$IMAGE"
           for i in $(seq 1 30); do
             status=$(docker inspect -f '{{.State.Health.Status}}' smoke)

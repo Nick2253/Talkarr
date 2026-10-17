@@ -52,6 +52,7 @@ jobs:
       - name: Smoke test
         run: |
           docker run --rm --entrypoint ffsubsync talkarr:smoke --version
+          docker run --rm --entrypoint python talkarr:smoke -c "import webrtcvad, auditok"
           docker run -d --name "smoke-${{ gitea.run_id }}" talkarr:smoke
           trap 'docker rm -f "smoke-${{ gitea.run_id }}" >/dev/null' EXIT
           for i in $(seq 1 30); do

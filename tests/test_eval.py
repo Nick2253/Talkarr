@@ -155,3 +155,23 @@ def test_reference_sync_failure_keeps_unsynced_verdict(library, tmp_path, monkey
     printed = capsys.readouterr().out
     assert "| in_sync | 2 |" in printed
     assert "full sub sync failed: no audio" in printed
+
+
+def test_failed_reference_sync_is_retried(library, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from talkarr.eval import refsync
+    from talkarr.eval.library import find_items
+
+    item = next(i for i in find_items(str(library / "movies")) if i.reference)
+    calls = []
+
+    def failing(*a, **k):
+        calls.append(1)
+        return SimpleNamespace(success=False, offset=None, framerate=None, score=None, error="x")
+
+    monkeypatch.setattr(refsync, "run_ffsubsync", failing)
+    cache = str(tmp_path / "cache")
+    assert refsync.synced_reference(item, cache)[0] is None
+    assert refsync.synced_reference(item, cache)[0] is None
+    assert len(calls) == 2

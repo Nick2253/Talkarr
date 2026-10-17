@@ -29,10 +29,13 @@ def synced_reference(item, cache_dir):
     srt_path = os.path.join(cache_dir, f"{key}.srt")
     info_path = os.path.join(cache_dir, f"{key}.json")
 
+    info = None
     if os.path.exists(info_path):
         with open(info_path) as f:
             info = json.load(f)
-    else:
+        if not info.get("ok"):
+            info = None  # failures may be environmental (fixed since); retry them
+    if info is None:
         result = run_ffsubsync(item.reference, video, srt_path, timeout=TIMEOUT)
         info = {
             "ok": result.success,
