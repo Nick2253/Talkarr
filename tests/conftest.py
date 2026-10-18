@@ -46,6 +46,11 @@ def isolated_config(tmp_path, monkeypatch):
     db._local.db = None
     paths._mappings = None
     db.init_db()
+    from talkarr import scanner
+
+    scanner.wait(5)
+    scanner._state.clear()
+    scanner._state["running"] = False
     yield
     if getattr(db._local, "db", None) is not None:
         db._local.db.close()

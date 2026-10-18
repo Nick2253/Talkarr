@@ -6,31 +6,35 @@ VIDEO_EXTENSIONS = (".mkv", ".mp4", ".avi", ".m4v", ".ts")
 
 
 def find_video_for_subtitle(subtitle_path):
-    """Find the video a sidecar subtitle belongs to.
-
-    ``Movie.Name.2020.en.forced.srt`` belongs to ``Movie.Name.2020.<ext>``:
-    strip trailing dot-separated parts one at a time until a video with that
-    stem exists. Only if no stem matches and the folder holds exactly one
-    video is that video used; guessing in a season folder would sync one
-    episode's subtitles against another episode.
-    """
+    """Find the video a sidecar subtitle belongs to (see ``video_name_for``)."""
     directory = os.path.dirname(subtitle_path)
-    stem = os.path.splitext(os.path.basename(subtitle_path))[0]
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return None
+    name = video_name_for(os.path.basename(subtitle_path), names)
+    return os.path.join(directory, name) if name else None
 
+
+def video_name_for(subtitle_name, names):
+    """The video file in ``names`` (one folder's listing) a subtitle belongs to.
+
+    ``Movie.Name.2020.en.forced.srt`` belongs to ``Movie.Name.2020.<ext>``: strip
+    trailing dot-separated parts one at a time until a video with that stem exists.
+    Only if no stem matches and the folder holds exactly one video is that video
+    used; guessing in a season folder would pair one episode's subtitles with
+    another episode. Pure: one listing serves every subtitle in the folder.
+    """
+    videos = [n for n in names if n.lower().endswith(VIDEO_EXTENSIONS)]
+    by_stem = {os.path.splitext(v)[0]: v for v in videos}
+    stem = os.path.splitext(subtitle_name)[0]
     while stem:
-        for ext in VIDEO_EXTENSIONS:
-            candidate = os.path.join(directory, stem + ext)
-            if os.path.isfile(candidate):
-                return candidate
+        if stem in by_stem:
+            return by_stem[stem]
         if "." not in stem:
             break
         stem = stem.rsplit(".", 1)[0]
-
-    videos = [f for f in os.listdir(directory) if f.lower().endswith(VIDEO_EXTENSIONS)]
-    if len(videos) == 1:
-        return os.path.join(directory, videos[0])
-
-    return None
+    return videos[0] if len(videos) == 1 else None
 
 
 SUB_EXT = ".srt"

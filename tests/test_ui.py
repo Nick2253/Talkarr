@@ -187,14 +187,55 @@ def test_mode_switch(client):
     assert "Pick one of the three modes" in post(client, "/settings/mode", {"mode": "yolo"}).text
 
 
-def test_scan_from_ui(client, library, media_dir):
+def test_scan_runs_in_the_background(client, library, media_dir):
+    from talkarr import scanner
+
     (media_dir / "movies" / "Star Wars (1977)" / "Star Wars (1977).mkv").write_bytes(b"")
     r = post(client, "/scan", {"directory": str(media_dir), "filter": "all", "requeue": "1"})
-    assert "Queued 2 subtitles to check." in r.text
+    assert "Scanning the whole library." in r.text
+    scanner.wait(10)
+    state = scanner.state()
+    assert not state["running"] and state["queued"] == 2 and state["seen"] >= 2
+    page = get(client, "/library")
+    assert "Last scan (the whole library, just now): queued 2 of" in page
+
+
+def test_scan_refuses_bad_folders_and_a_second_scan(client, library, media_dir, monkeypatch):
+    from talkarr import scanner
+
     r = post(client, "/scan", {"directory": "/etc", "filter": "all"})
     assert "outside the media library" in r.text
+    monkeypatch.setattr(
+        scanner,
+        "_state",
+        {
+            "running": True,
+            "label": "movies",
+            "started": 0,
+            "folders": 3,
+            "seen": 7,
+            "queued": 2,
+            "filter": "forced",
+        },
+    )
     r = post(client, "/scan", {"directory": str(media_dir), "filter": "forced"})
-    assert "No new subtitles to check there." in r.text
+    assert "A scan of movies is already running." in r.text
+    page = get(client, "/library")
+    assert "Scanning movies" in page and "2</span> queued so far" in page
+    assert 'disabled title="A scan is already running"' in page
+
+
+def test_scan_failure_is_reported(client, library, media_dir, monkeypatch):
+    from talkarr import app as app_module
+    from talkarr import scanner
+
+    def boom(*a, **k):
+        raise OSError("share went away")
+
+    monkeypatch.setattr(app_module, "queue_scan", boom)
+    post(client, "/scan", {"directory": str(media_dir), "filter": "all"})
+    scanner.wait(10)
+    assert "failed: share went away" in get(client, "/library")
 
 
 def test_cross_site_posts_are_refused(client, library):

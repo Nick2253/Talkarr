@@ -298,3 +298,19 @@ def set_setting(key, value):
             (key, value, time.time()),
         )
         db.commit()
+
+
+# Statuses a job only has while the worker is on it.
+IN_PROGRESS = ("classifying", "cleaning", "syncing", "verifying", "validating")
+
+
+def requeue_interrupted():
+    """Jobs left mid-check by a restart go back in the queue. Returns how many."""
+    with get_db() as db:
+        cur = db.execute(
+            f"UPDATE jobs SET status = 'pending', updated_at = ? "
+            f"WHERE status IN ({','.join('?' * len(IN_PROGRESS))})",
+            (time.time(), *IN_PROGRESS),
+        )
+        db.commit()
+        return cur.rowcount

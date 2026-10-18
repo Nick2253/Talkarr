@@ -15,9 +15,11 @@ from .db import (
     get_recent_jobs,
     get_stats,
     init_db,
+    requeue_interrupted,
     update_job_status,
 )
-from .media import find_video_for_subtitle as _find_media_for_subtitle
+from .media import find_video_for_subtitle as _find_media_for_subtitle  # noqa: F401
+from .media import video_name_for
 from .paths import translate_path
 from .worker import start_worker
 
@@ -102,15 +104,17 @@ class ScanError(Exception):
     """A scan request that can't be started; the message is shown to the user."""
 
 
-def queue_scan(directory, sub_filter="all", requeue=False):
-    """Queue every subtitle under ``directory`` (inside MEDIA_PATH) for checking."""
-    if not _within_media(directory):
-        raise ScanError(f"{directory} is outside the media library ({Config.MEDIA_PATH})")
-    if not os.path.isdir(directory):
-        raise ScanError(f"Folder not found: {directory}")
+def queue_scan(directory, sub_filter="all", requeue=False, progress=None):
+    """Queue every subtitle under ``directory`` (inside MEDIA_PATH) for checking.
 
-    count = 0
+    Subtitles are queued as they are found, so the worker can start on the first
+    ones while the walk continues. ``progress(folders, subtitles_seen, queued)`` is
+    called after each folder.
+    """
+    check_scan_target(directory)
+    folders = seen = count = 0
     for root, _, files in os.walk(directory):
+        folders += 1
         for f in files:
             if not f.endswith(".srt"):
                 continue
@@ -123,11 +127,11 @@ def queue_scan(directory, sub_filter="all", requeue=False):
                 or (sub_filter == "hi" and not is_hi)
             ):
                 continue
-
-            subtitle_path = os.path.join(root, f)
-            media_path = _find_media_for_subtitle(subtitle_path)
-            if not media_path:
+            seen += 1
+            video = video_name_for(f, files)
+            if not video:
                 continue
+            subtitle_path = os.path.join(root, f)
             existing = get_job_by_subtitle(subtitle_path)
             if existing and existing["status"] not in FINISHED:
                 continue  # already queued or being checked
@@ -135,20 +139,27 @@ def queue_scan(directory, sub_filter="all", requeue=False):
                 continue
             if existing:
                 update_job_status(existing["id"], JobStatus.PENDING)  # re-check in place
-                count += 1
-                continue
-
-            create_job(
-                str(uuid.uuid4())[:8],
-                subtitle_path,
-                media_path,
-                _extract_language(f),
-                source="bulk",
-            )
+            else:
+                create_job(
+                    str(uuid.uuid4())[:8],
+                    subtitle_path,
+                    os.path.join(root, video),
+                    _extract_language(f),
+                    source="bulk",
+                )
             count += 1
+        if progress:
+            progress(folders, seen, count)
 
     log.info("Scan queued %d subtitles from %s (filter=%s)", count, directory, sub_filter)
     return count
+
+
+def check_scan_target(directory):
+    if not _within_media(directory):
+        raise ScanError(f"{directory} is outside the media library ({Config.MEDIA_PATH})")
+    if not os.path.isdir(directory):
+        raise ScanError(f"Folder not found: {directory}")
 
 
 @app.route("/bulk", methods=["POST"])
@@ -219,5 +230,8 @@ app.register_blueprint(ui)
 
 def create_app():
     init_db()
+    interrupted = requeue_interrupted()
+    if interrupted:
+        log.info("Re-queued %d subtitles that were being checked when Talkarr stopped", interrupted)
     start_worker()
     return app

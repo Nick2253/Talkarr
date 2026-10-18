@@ -50,3 +50,21 @@ def test_string_validation_notes_stored_verbatim():
 def test_init_is_idempotent():
     db.init_db()
     db.init_db()
+
+
+def test_requeue_interrupted():
+    for job_id, status in (
+        ("a", "verifying"),
+        ("b", "syncing"),
+        ("c", "completed"),
+        ("d", "pending"),
+    ):
+        db.create_job(job_id, f"/m/{job_id}.srt", None, "en")
+        db.update_job_status(job_id, status)
+    assert db.requeue_interrupted() == 2
+    assert {j: db.get_job(j)["status"] for j in "abcd"} == {
+        "a": "pending",
+        "b": "pending",
+        "c": "completed",
+        "d": "pending",
+    }

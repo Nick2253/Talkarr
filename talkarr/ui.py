@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
-from . import db, fixes, review, settings
+from . import db, fixes, review, scanner, settings
 from .config import Config
 from .forced import subtitles as S
 from .settings import Mode
@@ -351,6 +351,7 @@ def library_page():
     done = statuses.get("completed", 0) + statuses.get("failed", 0)
     return render_template(
         "library.html",
+        scan=scanner.state(),
         nav="library",
         jobs=jobs,
         limit=limit,
@@ -649,20 +650,19 @@ def recheck_action(job_id):
 
 @ui.route("/scan", methods=["POST"])
 def scan_action():
-    from .app import ScanError, queue_scan
+    from .app import ScanError
 
     try:
-        count = queue_scan(
+        started = scanner.start(
             request.form.get("directory") or Config.MEDIA_PATH,
             request.form.get("filter", "all"),
             requeue=bool(request.form.get("requeue")),
         )
         flash(
-            f"Queued {count} subtitle{'' if count == 1 else 's'} to check."
-            if count
-            else "No new subtitles to check there."
+            f"Scanning {started['label']}. Subtitles appear in the queue as they're found; "
+            "checking starts right away."
         )
-    except ScanError as e:
+    except (ScanError, scanner.ScanBusy) as e:
         flash(str(e), "error")
     return redirect(url_for("ui.library_page"))
 

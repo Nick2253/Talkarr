@@ -10,7 +10,7 @@
 <div class="grid-detail" style="margin-bottom:32px">
   <div class="panel">
     <h2>Scan for subtitles</h2>
-    <form method="post" action="{{ url_for('ui.scan_action') }}" class="filters" style="margin-top:14px;padding:0">
+    <form method="post" action="{{ url_for('ui.scan_action') }}" class="filters" style="margin-top:14px;padding:0" data-pending="Starting scan…">
       <div class="field">
         <label for="scan-dir">Folder</label>
         <select id="scan-dir" name="directory">
@@ -27,14 +27,22 @@
         </select>
       </div>
       <label class="label" style="display:flex;gap:8px;align-items:center;min-height:38px"><input type="checkbox" name="requeue" value="1"> Re-check ones already done</label>
-      <button class="btn-apply" type="submit">Start scan</button>
+      <button class="btn-apply" type="submit"{% if scan.running %} disabled title="A scan is already running"{% endif %}>Start scan</button>
     </form>
     <p class="muted" style="font-size:12px;margin-top:10px">Forced subtitles take a few minutes each the first time (the audio is analysed once and remembered).</p>
   </div>
-  <div class="panel progress" id="progress" data-busy="{{ busy }}">
+  <div class="panel progress" id="progress" data-busy="{{ busy + (1 if scan.running else 0) }}">
+    {% if scan.running %}
+    <div class="panel-head"><h2>Scanning {{ scan.label }}</h2><span class="tc">{{ scan.started | ago }}</span></div>
+    <div class="track indeterminate"><span></span></div>
+    <p><span class="tc">{{ scan.folders }}</span> folders and <span class="tc">{{ scan.seen }}</span> {{ 'forced ' if scan.filter == 'forced' else '' }}subtitles looked at; <span class="tc">{{ scan.queued }}</span> queued so far. Checking has already started.</p>
+    {% else %}
     <div class="panel-head"><h2>Queue</h2><span class="tc">{{ done }} / {{ done + busy }}</span></div>
     <div class="track"><span style="width: {{ ((done / (done + busy)) * 100) if (done + busy) else 0 }}%"></span></div>
-    <p>{% if busy %}{{ busy }} subtitle{{ '' if busy == 1 else 's' }} queued or being checked. This page refreshes on its own.{% else %}Idle. Nothing is queued.{% endif %}</p>
+    <p>{% if busy %}{{ busy }} subtitle{{ '' if busy == 1 else 's' }} queued or being checked.{% else %}Idle. Nothing is queued.{% endif %}
+      {% if scan.finished %}Last scan ({{ scan.label }}, {{ scan.finished | ago }}): {% if scan.error %}<span style="color:var(--tally)">failed: {{ scan.error }}</span>{% else %}queued {{ scan.queued }} of {{ scan.seen }} subtitles{% endif %}.{% endif %}
+      {% if busy %}This page refreshes on its own.{% endif %}</p>
+    {% endif %}
   </div>
 </div>
 

@@ -20,10 +20,20 @@
     btn.form && btn.form.addEventListener("submit", () => clearTimeout(timer));
   });
 
+  // Forms that start slow work acknowledge the click at once and can't be sent twice.
+  document.querySelectorAll("form[data-pending]").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const btn = form.querySelector("button[type=submit]");
+      if (!btn) return;
+      btn.textContent = form.dataset.pending;
+      setTimeout(() => (btn.disabled = true), 0); // after the submit is on its way
+    });
+  });
+
   // Library: keep the queue fresh while a scan is running.
   const progress = document.getElementById("progress");
   if (progress && Number(progress.dataset.busy) > 0) {
-    setTimeout(() => window.location.reload(), 10000);
+    setTimeout(() => window.location.reload(), 5000);
   }
 
   // Job page: cue ribbon + adjust preview.

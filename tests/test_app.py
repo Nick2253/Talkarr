@@ -239,3 +239,23 @@ def test_bulk_requeues_jobs_left_in_old_terminal_statuses(client, library):
     r = client.post("/bulk", json={"directory": str(library), "filter": "forced", "requeue": True})
     assert r.get_json()["count"] == 1
     assert db.get_job(job["id"])["status"] == JobStatus.PENDING
+
+
+@pytest.mark.parametrize(
+    ("sub", "names", "expected"),
+    [
+        (
+            "Movie.Name.2020.en.forced.srt",
+            ["Movie.Name.2020.mkv", "Movie.mkv"],
+            "Movie.Name.2020.mkv",
+        ),
+        ("S01E02.en.srt", ["S01E01.mkv", "S01E02.MKV"], "S01E02.MKV"),
+        ("Other.en.srt", ["S01E01.mkv", "S01E02.mkv"], None),
+        ("movie.en.srt", ["Movie.2020.1080p.mkv", "poster.jpg"], "Movie.2020.1080p.mkv"),
+        ("a.en.srt", [], None),
+    ],
+)
+def test_video_name_for(sub, names, expected):
+    from talkarr.media import video_name_for
+
+    assert video_name_for(sub, names) == expected
