@@ -150,11 +150,12 @@ def _mislabelled_fix(path, decision):
             CONFIDENT,
             {"to": target},
         )
+    backup = action != "remove"
     return _fix(
         "remove",
-        "Remove (backup kept): a full subtitle saved as forced",
+        f"Remove ({'backup kept' if backup else 'no backup'}): a full subtitle saved as forced",
         CONFIDENT,
-        {"reason": decision.reason},
+        {"reason": decision.reason, "backup": backup},
     )
 
 
@@ -172,6 +173,7 @@ def _fix(kind, summary, tier, params):
         "params": params,
         "state": PROPOSED,
         "error": None,
+        "result": None,  # what applying it did, in words (e.g. "Blacklisted in Bazarr ...")
     }
 
 
@@ -227,7 +229,9 @@ def apply(job, proposal, indices, overrides=None, sync_runner=None):
     if proposal.get("fingerprint") and fingerprint(path) != proposal["fingerprint"]:
         raise ApplyError("the subtitle changed since it was checked; check it again first")
 
-    backup = _backup(job)
+    chosen = [fixes[i] for i in indices if fixes[i]["state"] == PROPOSED]
+    needs_copy = any(f["kind"] != "remove" or f["params"].get("backup", True) for f in chosen)
+    backup = _backup(job) if needs_copy else _no_backup(job)
     for i in sorted(indices, key=lambda i: ORDER.get(fixes[i]["kind"], 9)):
         fix = fixes[i]
         if fix["state"] != PROPOSED:
@@ -272,10 +276,40 @@ def _apply_one(fix, job, path, overrides, backup, sync_runner):
         os.rename(path, target)
         backup["renamed_to"] = target
     elif kind == "remove":
-        os.remove(path)
+        fix["result"] = _remove(path, job, backup)
         backup["removed"] = True
     else:
         raise ApplyError(f"unknown fix: {kind}")
+
+
+def _remove(path, job, backup):
+    """Delete a subtitle; through Bazarr's blacklist when Bazarr downloaded it."""
+    from . import bazarr
+    from .media import find_video_for_subtitle
+
+    if bazarr.enabled():
+        client = bazarr.Bazarr()
+        video = job.get("media_path") or find_video_for_subtitle(path)
+        try:
+            download = client.find_download(path, video)
+            if download is not None:
+                client.blacklist(download)
+                if os.path.exists(path):  # Bazarr said yes but left it; finish the job
+                    os.remove(path)
+                backup["bazarr"] = {"provider": download.provider, "subs_id": download.subs_id}
+                return (
+                    f"Blacklisted in Bazarr ({download.provider} #{download.subs_id}); "
+                    "Bazarr is searching for a different one."
+                )
+        except bazarr.BazarrError as e:
+            # Deleting it anyway would let Bazarr fetch the same file again.
+            raise ApplyError(
+                f"couldn't reach Bazarr to blacklist it, so it was left in place ({e})"
+            ) from e
+        os.remove(path)
+        return "Bazarr has no record of downloading it, so it was deleted directly."
+    os.remove(path)
+    return "Deleted."
 
 
 def _retime(path, scale, offset):
@@ -292,9 +326,21 @@ def _backup(job):
     return {"path": path, "copy": copy, "renamed_to": None, "removed": False, "at": time.time()}
 
 
+def _no_backup(job):
+    return {
+        "path": job["subtitle_path"],
+        "copy": None,
+        "renamed_to": None,
+        "removed": False,
+        "at": time.time(),
+    }
+
+
 def revert(job, backup):
     """Put the original subtitle back exactly as it was before the fixes."""
-    if not backup or not os.path.isfile(backup.get("copy", "")):
+    if backup and backup.get("removed") and not backup.get("copy"):
+        raise ApplyError("it was removed without a backup, so it can't be restored")
+    if not backup or not os.path.isfile(backup.get("copy") or ""):
         raise ApplyError("no backup to restore")
     renamed = backup.get("renamed_to")
     if renamed and os.path.exists(renamed):

@@ -30,7 +30,7 @@
               <input type="checkbox" name="fix" value="{{ loop.index0 }}" {% if f.state == 'proposed' %}checked{% else %}disabled{% endif %}>
               <span class="fix-line {{ f.state }}"><span class="tier tier-{{ f.tier }}"></span>{{ f.summary }}</span>
             </label>
-            <small>{{ tier_help[f.tier] }}{% if f.params.get('adjusted') %} Adjusted by hand.{% endif %}{% if f.error %} <span class="error">{{ f.error }}</span>{% endif %}</small>
+            <small>{% if f.state == 'applied' and f.result %}{{ f.result }}{% else %}{{ tier_help[f.tier] }}{% if f.kind == 'remove' and bazarr_blacklist %} If Bazarr downloaded it, Bazarr blacklists it and searches for a different one.{% endif %}{% if f.kind == 'remove' and not f.params.get('backup', True) %} No backup is kept.{% endif %}{% endif %}{% if f.params.get('adjusted') %} Adjusted by hand.{% endif %}{% if f.error %} <span class="error">{{ f.error }}</span>{% endif %}</small>
           </li>
           {% endfor %}
         </ul>
@@ -133,10 +133,12 @@
       <ul class="history">
         {% for h in history %}<li><span>{{ h.text }}</span><span class="muted tc">{{ h.at | ago }}</span></li>{% endfor %}
       </ul>
+      {% if job.can_revert %}
       <form method="post" action="{{ url_for('ui.revert_action', job_id=job.id) }}" style="margin-top:14px">
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <button class="btn-quiet" type="submit" data-confirm="Restore the original?">Restore the original</button>
       </form>
+      {% endif %}
       {% else %}
       <p class="muted" style="margin-top:12px">Nothing has been changed. Originals are backed up before any fix is applied.</p>
       {% endif %}

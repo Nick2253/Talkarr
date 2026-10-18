@@ -297,6 +297,21 @@ In these cases the review flag is cleared and the reason states the evidence.
 - Verified in headless Chromium at 1280 and 390 px: remove (two-click confirm), adjust and
   apply a retime, restore, switch mode; no console errors or horizontal overflow.
 
+**2026-10-18, background scans and the Bazarr blacklist.**
+- Scans run in the background with live progress, and restarts re-queue interrupted jobs
+  (W1). Full subtitles saved as forced are decided from the cue count alone, which makes a
+  whole-library scan take hours instead of days.
+- The owner wants mislabelled forced files removed outright (`MISLABELLED_ACTION=remove`, no
+  backup). Plain deletion would make Bazarr fetch the same file again: Man on Fire's forced sub
+  (subsource #10092957) was downloaded three times in five days. Removals therefore go through
+  Bazarr when it downloaded the file:
+  - Talkarr finds the movie or episode, then the history row for that exact file, then
+    `POST /api/{movies,episodes}/blacklist`.
+  - Bazarr deletes the file, blacklists the provider and subtitle ID, and searches again.
+  - If Bazarr has no record, Talkarr deletes the file directly. If Bazarr is unreachable, the
+    file is left in place.
+  - Verified read-only against Bazarr 1.6.2. This lands part of Phase 5 early.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

@@ -21,12 +21,9 @@ class Mode:
     LABELS = {MANUAL: "Manual", SAFE_AUTO: "Safe Auto", FULL_AUTO: "Full Auto"}
 
 
-MISLABELLED_ACTIONS = ("remove_and_backup", "rename_or_remove_and_backup", "flag")
-# Earlier names, still accepted.
-MISLABELLED_ALIASES = {
-    "remove": "remove_and_backup",
-    "rename_or_remove": "rename_or_remove_and_backup",
-}
+MISLABELLED_ACTIONS = ("remove", "remove_and_backup", "rename_or_remove_and_backup", "flag")
+# Earlier name, still accepted.
+MISLABELLED_ALIASES = {"rename_or_remove": "rename_or_remove_and_backup"}
 
 
 def get_mode():
@@ -96,7 +93,8 @@ def configuration():
             "Mislabelled forced subtitles",
             "MISLABELLED_ACTION",
             mislabelled_action(),
-            "Full subtitles saved as forced. Removed or renamed files are backed up first.",
+            "Full subtitles saved as forced. remove deletes without a backup; the other "
+            "actions back the file up first.",
         ),
         item(
             "Fixes",
@@ -131,6 +129,14 @@ def configuration():
         ),
         item("Services", "Bazarr", "BAZARR_URL", Config.BAZARR_URL),
         item("Services", "Bazarr API key", "BAZARR_API_KEY", Config.BAZARR_API_KEY, secret=True),
+        item(
+            "Services",
+            "Blacklist removals in Bazarr",
+            "BAZARR_BLACKLIST",
+            Config.BAZARR_BLACKLIST and bool(Config.BAZARR_API_KEY),
+            "Removing a subtitle Bazarr downloaded blacklists it there, so Bazarr fetches a "
+            "different one instead of the same file again. Needs the API key.",
+        ),
         item(
             "Services",
             "Discord notifications",

@@ -45,3 +45,18 @@ def translate_path(path):
             return dst + path[len(src) :]
 
     return path
+
+
+def to_source_path(path):
+    """The reverse of ``translate_path``: our path as the source container (Bazarr) sees it.
+
+    "/data:/media" means our /media/movies/... → Bazarr's /data/movies/...
+    """
+    if not path:
+        return path
+
+    for src, dst in _parse_mappings():
+        if path == dst or path.startswith(dst + "/"):
+            return src + path[len(dst) :]
+
+    return path

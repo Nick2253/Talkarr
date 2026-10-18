@@ -4,6 +4,10 @@ import os
 class Config:
     BAZARR_URL = os.environ.get("BAZARR_URL", "http://bazarr:6767")
     BAZARR_API_KEY = os.environ.get("BAZARR_API_KEY", "")
+    # When Talkarr removes a subtitle Bazarr downloaded, blacklist it in Bazarr (Bazarr
+    # deletes it and searches for a different one) instead of only deleting the file,
+    # which would let Bazarr fetch the same subtitle again. Needs BAZARR_API_KEY.
+    BAZARR_BLACKLIST = os.environ.get("BAZARR_BLACKLIST", "true").lower() == "true"
     RADARR_URL = os.environ.get("RADARR_URL", "http://radarr:7878")
     RADARR_API_KEY = os.environ.get("RADARR_API_KEY", "")
     SONARR_URL = os.environ.get("SONARR_URL", "http://sonarr:8989")
@@ -22,11 +26,13 @@ class Config:
     # Operating mode at first start: manual | safe_auto | full_auto. The settings page can
     # change it at runtime (stored in the database); this is only the default.
     MODE = os.environ.get("TALKARR_MODE", "manual").lower()
-    # What applying a "mislabelled forced subtitle" fix does (the original is always
-    # copied to BACKUP_DIR first, so either change can be restored from the UI):
-    #   remove_and_backup           - delete it, e.g. so Bazarr fetches a real forced track
-    #   rename_or_remove_and_backup - make it the regular subtitle if there is none, else delete
+    # What applying a "mislabelled forced subtitle" fix does:
+    #   remove                      - delete it, no backup (can't be restored)
+    #   remove_and_backup           - delete it after copying it to BACKUP_DIR
+    #   rename_or_remove_and_backup - make it the regular subtitle if there is none, else
+    #                                 delete it; backed up either way
     #   flag                        - never touch it; only report it
+    # Removals of subtitles Bazarr downloaded go through Bazarr's blacklist (BAZARR_BLACKLIST).
     # ("remove" and "rename_or_remove" are accepted as older names.)
     MISLABELLED_ACTION = os.environ.get("MISLABELLED_ACTION", "rename_or_remove_and_backup").lower()
     BACKUP_DIR = os.environ.get("BACKUP_DIR", "/data/backups")

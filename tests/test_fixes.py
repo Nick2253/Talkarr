@@ -262,7 +262,7 @@ def test_mislabelled_action_names(monkeypatch):
     monkeypatch.setattr(Config, "MISLABELLED_ACTION", "explode")
     assert settings.mislabelled_action() == "flag"
     monkeypatch.setattr(Config, "MISLABELLED_ACTION", "remove")
-    assert settings.mislabelled_action() == "remove_and_backup"
+    assert settings.mislabelled_action() == "remove"
     monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove")
     assert settings.mislabelled_action() == "rename_or_remove_and_backup"
 
@@ -279,6 +279,6 @@ def test_configuration_masks_secrets_and_tracks_source(monkeypatch):
 
 
 def test_configuration_shows_the_exact_compose_value(monkeypatch):
-    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "remove")
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove")
     rows = {r.label: r for r in settings.configuration()}
-    assert rows["Mislabelled forced subtitles"].value == "remove_and_backup"
+    assert rows["Mislabelled forced subtitles"].value == "rename_or_remove_and_backup"

@@ -104,6 +104,8 @@ since it was checked. The mode is the only setting changed in the UI (stored in 
 | `settings.py` | Modes (`manual`, `safe_auto`, `full_auto`), the read-only configuration list |
 | `fixes.py` | Building proposals, tiers, auto-apply policy, applying with backups, reverting |
 | `review.py` | Apply / dismiss / revert / re-check (shared by the UI and the automatic modes) |
+| `bazarr.py` | Finds Bazarr's download record for a subtitle (movie or episode history) and blacklists it, so a removed subtitle isn't fetched again |
+| `scanner.py` | Background library scans (one at a time) with progress for the Library page |
 | `worker.py` | Job loop: analyse → propose → auto-apply per mode |
 | `config.py` | Env-var config (`Config` class attributes) |
 | `db.py` | SQLite: jobs (verdict, review, report, proposal, outcome, backup), settings |
@@ -136,7 +138,8 @@ must be disabled.
 | `MEDIA_PATH` | `/media` | Media root; Talkarr only reads and changes files inside it |
 | `PATH_MAPPING` | – | e.g. `/data:/media`; `|`-separated pairs |
 | `TALKARR_MODE` | `manual` | Mode at first start: `manual`, `safe_auto`, `full_auto` (the Settings page overrides it) |
-| `MISLABELLED_ACTION` | `rename_or_remove_and_backup` | Full subtitle saved as forced: `remove_and_backup`, `rename_or_remove_and_backup`, `flag` (older `remove` / `rename_or_remove` still accepted). Removed or renamed files are backed up first |
+| `MISLABELLED_ACTION` | `rename_or_remove_and_backup` | Full subtitle saved as forced: `remove` (no backup), `remove_and_backup`, `rename_or_remove_and_backup`, `flag` |
+| `BAZARR_BLACKLIST` | `true` | With `BAZARR_API_KEY` set: removing a subtitle Bazarr downloaded blacklists it in Bazarr (Bazarr deletes it and searches for a different one) instead of deleting the file directly |
 | `BACKUP_DIR` | `/data/backups` | Originals are copied here before any change |
 | `SYNC_MIN_OFFSET` | `0.15` | Smallest ffsubsync correction worth proposing (s) |
 | `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync confidence at which a sync counts as confident (Full Auto) |
@@ -146,7 +149,7 @@ must be disabled.
 | `DATABASE_PATH` | `/data/talkarr.db` | SQLite database |
 | `TALKARR_WEBHOOK_SECRET` | – | When set, `/process` and `/bulk` need `Authorization: Bearer <secret>` |
 | `TALKARR_SECRET_KEY` | random | Signs the flash-message cookie |
-| `BAZARR_URL` / `BAZARR_API_KEY` | `http://bazarr:6767` / – | Bazarr API (Phase 5) |
+| `BAZARR_URL` / `BAZARR_API_KEY` | `http://bazarr:6767` / – | Bazarr API (`bazarr.py`: history lookup + blacklist) |
 | `DISCORD_WEBHOOK_URL` | – | Discord notifications |
 | `WHISPER_URL` / `WHISPER_MODEL` | – / `whisper-large-v3-turbo` | Transcription API (Phase 3b) |
 | `RADARR_*`, `SONARR_*`, `BASE_URL`, `SYNC_SCORE_THRESHOLD` | | Unused |

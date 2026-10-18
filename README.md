@@ -56,7 +56,8 @@ changed on the Settings page. The full list, with defaults, is in
 | `MEDIA_PATH` | `/media` | Media root inside the container |
 | `PATH_MAPPING` | `/data:/media` | Bazarr's paths → Talkarr's |
 | `TALKARR_MODE` | `manual` | Starting mode |
-| `MISLABELLED_ACTION` | `remove_and_backup` | `remove_and_backup` (e.g. let Bazarr fetch a real forced track), `rename_or_remove_and_backup`, or `flag`. The original is backed up first either way |
+| `MISLABELLED_ACTION` | `remove` | `remove` (no backup), `remove_and_backup`, `rename_or_remove_and_backup`, or `flag` |
+| `BAZARR_BLACKLIST` | `true` | When a removed subtitle came from Bazarr, blacklist it there so Bazarr fetches a different one (needs `BAZARR_API_KEY`) |
 | `TALKARR_ML_URL` | `http://talkarr-ml:8000` | Speech analysis for the forced-subtitle audio check |
 
 ## Endpoints

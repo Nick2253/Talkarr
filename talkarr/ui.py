@@ -224,7 +224,7 @@ def present(job):
     job["report_data"] = report
     job["history"] = history
     job["applied_by"] = Mode.LABELS.get(history[-1].get("by"), "you") if history else None
-    job["can_revert"] = bool(history)
+    job["can_revert"] = any(h.get("copy") for h in history)
     job["state"] = state_of(job)
     job["state_label"], job["state_class"], _ = STATES.get(job["state"], ("", "", {}))
     job["reason"] = plain_reason(job, report)
@@ -406,8 +406,11 @@ def job_page(job_id):
         "offset": offset,
     }
     raw = {k: v for k, v in report.items() if k != "ribbon"}
+    from . import bazarr
+
     return render_template(
         "job.html",
+        bazarr_blacklist=bazarr.enabled(),
         nav="",
         job=job,
         title=job["title"],
@@ -430,7 +433,9 @@ def job_page(job_id):
 def _cue_preview(job, limit=8):
     path = job["subtitle_path"]
     if not os.path.isfile(path) and job["history"]:
-        path = job["history"][0].get("copy", "")
+        path = job["history"][0].get("copy") or ""  # removed: preview the backup, if any
+    if not path or not os.path.isfile(path):
+        return [], 0
     try:
         cues = S.load(path)
     except (OSError, ValueError):
@@ -527,21 +532,16 @@ def _history(job):
     out = []
     for h in job["history"]:
         who = Mode.LABELS.get(h.get("by"), "you")
-        what = (
-            "removed the file"
-            if h.get("removed")
-            else (
-                f"renamed it to {os.path.basename(h['renamed_to'])}"
-                if h.get("renamed_to")
-                else "applied fixes"
-            )
-        )
-        out.append(
-            {
-                "text": f"{'You' if who == 'you' else who} {what}; original backed up.",
-                "at": h.get("at"),
-            }
-        )
+        if h.get("removed"):
+            what = "removed the file"
+            if h.get("bazarr"):
+                what += f" through Bazarr's blacklist ({h['bazarr']['provider']})"
+        elif h.get("renamed_to"):
+            what = f"renamed it to {os.path.basename(h['renamed_to'])}"
+        else:
+            what = "applied fixes"
+        kept = "original backed up" if h.get("copy") else "no backup kept"
+        out.append({"text": f"{'You' if who == 'you' else who} {what}; {kept}.", "at": h.get("at")})
     return out
 
 
@@ -611,8 +611,10 @@ def apply_action(job_id):
                 return _back(url_for("ui.job_page", job_id=job_id))
     try:
         applied = review.apply_job(job_id, _indices(), overrides or None, by="you")
-        done = [f["summary"] for f in applied if f["state"] == fixes.APPLIED]
-        flash(f"Applied: {'; '.join(done)}." if done else "Applied.")
+        done = [f for f in applied if f["state"] == fixes.APPLIED]
+        message = f"Applied: {'; '.join(f['summary'] for f in done)}." if done else "Applied."
+        results = [f["result"] for f in done if f.get("result")]
+        flash(" ".join([message, *results]))
     except review.ReviewError as e:
         flash(f"Couldn't apply: {e}.", "error")
     return _back(url_for("ui.review_page"))

@@ -13,5 +13,10 @@
 
 {% macro confirm_attrs(fixes) -%}
   {%- set destructive = fixes | selectattr('state', 'equalto', 'proposed') | selectattr('kind', 'in', ['remove', 'rename']) | list -%}
-  {%- if destructive %} data-confirm="{{ 'Remove the file?' if destructive[0].kind == 'remove' else 'Rename the file?' }}"{% endif -%}
+  {%- if destructive -%}
+    {%- set d = destructive[0] -%}
+    {%- if d.kind == 'rename' %} data-confirm="Rename the file?"
+    {%- elif d.params.get('backup', True) %} data-confirm="Remove the file?"
+    {%- else %} data-confirm="Remove permanently?"{% endif -%}
+  {%- endif -%}
 {%- endmacro %}
