@@ -143,15 +143,18 @@ def _mislabelled_fix(path, decision):
     if action == "flag":
         return None
     target = _regular_name(path)
-    if action == "rename_or_remove" and target and not os.path.exists(target):
+    if action == "rename_or_remove_and_backup" and target and not os.path.exists(target):
         return _fix(
             "rename",
-            f"Rename to {os.path.basename(target)}: it is a full subtitle",
+            f"Rename to {os.path.basename(target)} (backup kept): it is a full subtitle",
             CONFIDENT,
             {"to": target},
         )
     return _fix(
-        "remove", "Remove: a full subtitle saved as forced", CONFIDENT, {"reason": decision.reason}
+        "remove",
+        "Remove (backup kept): a full subtitle saved as forced",
+        CONFIDENT,
+        {"reason": decision.reason},
     )
 
 

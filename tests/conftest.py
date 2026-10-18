@@ -38,7 +38,7 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "SYNC_ENABLED", True)
     monkeypatch.setattr(Config, "CLEAN_ENABLED", True)
     monkeypatch.setattr(Config, "MODE", "manual")
-    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove")
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove_and_backup")
     monkeypatch.setattr(Config, "BACKUP_DIR", str(tmp_path / "backups"))
     monkeypatch.setattr(Config, "FORCED_VERIFY_ENABLED", False)
     monkeypatch.setattr(Config, "ML_URL", "")

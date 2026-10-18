@@ -219,10 +219,12 @@ def test_corroborated_retime_is_safe_and_applied_in_safe_auto(forced_film):
 @pytest.mark.parametrize(
     ("action", "full_sub", "expected"),
     [
-        ("rename_or_remove", False, "rename"),
-        ("rename_or_remove", True, "remove"),
-        ("remove", False, "remove"),
+        ("rename_or_remove_and_backup", False, "rename"),
+        ("rename_or_remove_and_backup", True, "remove"),
+        ("remove_and_backup", False, "remove"),
         ("flag", False, None),
+        ("remove", False, "remove"),  # older names still work
+        ("rename_or_remove", False, "rename"),
     ],
 )
 def test_mislabelled_forced_sub(tmp_path, forced_film, monkeypatch, action, full_sub, expected):

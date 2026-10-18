@@ -63,13 +63,13 @@
   {% if jobs %}
   <div class="table-scroll">
     <table class="jobs">
-      <thead><tr><th>Subtitle</th><th>Type</th><th>Verdict</th><th>Fixes</th><th>Checked</th></tr></thead>
+      <thead><tr><th>Subtitle</th><th>Type</th><th>Now</th><th>Fixes</th><th>Checked</th></tr></thead>
       <tbody>
         {% for j in jobs %}
         <tr>
           <td><a href="{{ url_for('ui.job_page', job_id=j.id) }}"><strong>{{ j.title }}</strong></a><div class="muted tc" style="font-size:12px">{{ j.file }}</div></td>
           <td>{{ m.kind_chip(j.sub_type) }}</td>
-          <td>{% if j.verdict %}<span class="verdict verdict-{{ j.verdict }}">{{ verdict_names.get(j.verdict, j.verdict) }}</span>{% elif j.status != 'completed' %}<span class="muted">{{ j.status }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td>{% if j.status not in ('completed', 'failed', 'flagged', 'blacklisted', 'skipped') %}<span class="muted">{{ j.status }}…</span>{% elif j.state %}<span class="verdict verdict-{{ j.state_class }}">{{ j.state_label }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
           <td>{% if j.fixes %}{{ m.fix_lines(j.fixes) }}{% elif j.review or j.verdict == 'mismatch' %}<span class="review-flag">Needs a look</span>{% else %}<span class="muted">{{ outcome_names.get(j.outcome, '–') }}</span>{% endif %}</td>
           <td class="tc muted">{{ j.updated_at | ago }}</td>
         </tr>

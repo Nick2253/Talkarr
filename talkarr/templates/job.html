@@ -3,13 +3,14 @@
 {% block title %}{{ title }} · Talkarr{% endblock %}
 {% block content %}
 <div class="job-head">
-  <span class="eyebrow">{{ {'forced': 'Forced subtitle', 'hi': 'Hearing-impaired subtitle', 'regular': 'Subtitle'}.get(job.sub_type, 'Subtitle') }} · checked {{ job.updated_at | ago }}</span>
+  <span class="eyebrow">{{ {'forced': 'Forced subtitle', 'hi': 'Hearing-impaired subtitle', 'regular': 'Subtitle'}.get(job.sub_type, 'Subtitle') }} · {% if job.applied_at and job.state == 'fixed' %}fixed {{ job.applied_at | ago }}{% else %}checked {{ job.updated_at | ago }}{% endif %}</span>
   <h1>{{ title }}</h1>
   <span class="file" title="{{ job.subtitle_path }}">{{ job.relpath }}</span>
-  {% if job.verdict or reason %}
+  {% if job.state or reason %}
   <div class="verdict-line">
-    {% if job.verdict %}<span class="verdict verdict-{{ job.verdict }}">{{ verdict_names.get(job.verdict, job.verdict) }}</span>{% endif %}
-    {% if job.review %}<span class="review-flag">Needs a look</span>{% endif %}
+    {% if job.state %}<span class="verdict verdict-{{ job.state_class }}">{{ job.state_label }}</span>{% endif %}
+    {% if job.review and job.state not in ('fixed', 'left') %}<span class="review-flag">Needs a look</span>{% endif %}
+    {% if job.state in ('fixed', 'left', 'failed') and job.verdict %}<span class="muted">Talkarr found: {{ verdict_names.get(job.verdict, job.verdict) | lower }}.</span>{% endif %}
     <span>{{ reason }}</span>
   </div>
   {% endif %}

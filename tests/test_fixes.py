@@ -258,9 +258,13 @@ def test_mode_defaults_and_switching(monkeypatch):
         settings.set_mode("yolo")
 
 
-def test_mislabelled_action_falls_back_to_flag(monkeypatch):
+def test_mislabelled_action_names(monkeypatch):
     monkeypatch.setattr(Config, "MISLABELLED_ACTION", "explode")
     assert settings.mislabelled_action() == "flag"
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "remove")
+    assert settings.mislabelled_action() == "remove_and_backup"
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove")
+    assert settings.mislabelled_action() == "rename_or_remove_and_backup"
 
 
 def test_configuration_masks_secrets_and_tracks_source(monkeypatch):

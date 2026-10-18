@@ -136,7 +136,7 @@ must be disabled.
 | `MEDIA_PATH` | `/media` | Media root; Talkarr only reads and changes files inside it |
 | `PATH_MAPPING` | – | e.g. `/data:/media`; `|`-separated pairs |
 | `TALKARR_MODE` | `manual` | Mode at first start: `manual`, `safe_auto`, `full_auto` (the Settings page overrides it) |
-| `MISLABELLED_ACTION` | `rename_or_remove` | Full subtitle saved as forced: `remove`, `rename_or_remove`, `flag` |
+| `MISLABELLED_ACTION` | `rename_or_remove_and_backup` | Full subtitle saved as forced: `remove_and_backup`, `rename_or_remove_and_backup`, `flag` (older `remove` / `rename_or_remove` still accepted). Removed or renamed files are backed up first |
 | `BACKUP_DIR` | `/data/backups` | Originals are copied here before any change |
 | `SYNC_MIN_OFFSET` | `0.15` | Smallest ffsubsync correction worth proposing (s) |
 | `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync confidence at which a sync counts as confident (Full Auto) |

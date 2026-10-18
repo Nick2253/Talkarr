@@ -21,7 +21,12 @@ class Mode:
     LABELS = {MANUAL: "Manual", SAFE_AUTO: "Safe Auto", FULL_AUTO: "Full Auto"}
 
 
-MISLABELLED_ACTIONS = ("remove", "rename_or_remove", "flag")
+MISLABELLED_ACTIONS = ("remove_and_backup", "rename_or_remove_and_backup", "flag")
+# Earlier names, still accepted.
+MISLABELLED_ALIASES = {
+    "remove": "remove_and_backup",
+    "rename_or_remove": "rename_or_remove_and_backup",
+}
 
 
 def get_mode():
@@ -38,7 +43,7 @@ def set_mode(mode):
 
 
 def mislabelled_action():
-    action = Config.MISLABELLED_ACTION
+    action = MISLABELLED_ALIASES.get(Config.MISLABELLED_ACTION, Config.MISLABELLED_ACTION)
     return action if action in MISLABELLED_ACTIONS else "flag"
 
 

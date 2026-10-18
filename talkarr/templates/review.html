@@ -11,13 +11,13 @@
   {% endif %}
   <p>{{ mode_sentence }}{% if checked %} Talkarr has checked {{ checked }} subtitle{{ '' if checked == 1 else 's' }}{% if busy %}; {{ busy }} more {{ 'is' if busy == 1 else 'are' }} queued{% endif %}.{% endif %}</p>
   {% if forced_total %}
-  <div class="verdicts" aria-label="Verdicts for {{ forced_total }} forced subtitles">
+  <div class="verdicts" aria-label="Where {{ forced_total }} forced subtitles stand now">
     <div class="track">
-      {% for key, label in verdict_labels %}{% if verdicts.get(key) %}<span class="v-{{ key }}" style="flex: {{ verdicts[key] }}"></span>{% endif %}{% endfor %}
+      {% for key, label, css, n, filt in states %}<span class="v-{{ css }}" style="flex: {{ n }}" title="{{ label }}: {{ n }}"></span>{% endfor %}
     </div>
     <div class="legend">
-      <span class="eyebrow">Forced subtitles</span>
-      {% for key, label in verdict_labels %}{% if verdicts.get(key) %}<a href="{{ url_for('ui.library_page', verdict=key) }}"><i class="v-{{ key }}"></i>{{ label }} <b>{{ verdicts[key] }}</b></a>{% endif %}{% endfor %}
+      <span class="eyebrow">Forced subtitles now</span>
+      {% for key, label, css, n, filt in states %}<a href="{{ url_for('ui.library_page', kind='forced', **filt) }}"><i class="v-{{ css }}"></i>{{ label }} <b>{{ n }}</b></a>{% endfor %}
     </div>
   </div>
   {% endif %}
@@ -70,7 +70,7 @@
         <span class="file" title="{{ j.subtitle_path }}">{{ j.file }}</span>
       </div>
       <div class="fix-lines">
-        <span class="fix-line"><span class="verdict verdict-{{ j.verdict }}">{{ verdict_names.get(j.verdict, j.verdict) }}</span></span>
+        <span class="fix-line"><span class="verdict verdict-{{ j.state_class }}">{{ j.state_label }}</span></span>
         <span class="why">{{ j.reason }}</span>
       </div>
       <div class="acts"><a class="button btn-quiet" href="{{ url_for('ui.job_page', job_id=j.id) }}">Open</a></div>

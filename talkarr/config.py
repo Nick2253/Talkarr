@@ -22,11 +22,13 @@ class Config:
     # Operating mode at first start: manual | safe_auto | full_auto. The settings page can
     # change it at runtime (stored in the database); this is only the default.
     MODE = os.environ.get("TALKARR_MODE", "manual").lower()
-    # What applying a "mislabelled forced subtitle" fix does:
-    #   remove           - delete it (backed up), e.g. so Bazarr fetches a real forced track
-    #   rename_or_remove - rename it to the regular subtitle if there is none, else delete
-    #   flag             - never touch it; only report it
-    MISLABELLED_ACTION = os.environ.get("MISLABELLED_ACTION", "rename_or_remove").lower()
+    # What applying a "mislabelled forced subtitle" fix does (the original is always
+    # copied to BACKUP_DIR first, so either change can be restored from the UI):
+    #   remove_and_backup           - delete it, e.g. so Bazarr fetches a real forced track
+    #   rename_or_remove_and_backup - make it the regular subtitle if there is none, else delete
+    #   flag                        - never touch it; only report it
+    # ("remove" and "rename_or_remove" are accepted as older names.)
+    MISLABELLED_ACTION = os.environ.get("MISLABELLED_ACTION", "rename_or_remove_and_backup").lower()
     BACKUP_DIR = os.environ.get("BACKUP_DIR", "/data/backups")
     # Regular/HI syncs are proposed when ffsubsync moves a subtitle at least this much,
     # and count as confident (applied in Full Auto) at or above this confidence.

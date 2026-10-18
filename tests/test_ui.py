@@ -261,3 +261,37 @@ def test_title_of():
 )
 def test_plain_reason(verdict, report, expected):
     assert plain_reason({"verdict": verdict}, report) == expected
+
+
+def test_state_reflects_applied_fixes(client, library):
+    """After a fix is applied, nothing should still say "Needs retiming"."""
+    page = get(client, "/")
+    assert "Needs retiming <b>1</b>" in page
+    post(client, "/job/sw/apply", {"next": "/"})
+    page = get(client, "/")
+    assert "Needs retiming" not in page
+    assert "Fixed <b>1</b>" in page
+    job = get(client, "/job/sw")
+    assert ">Fixed</span>" in job and "Talkarr found: needs retiming." in job
+    assert ">Fixed</span>" in get(client, "/library")
+
+
+@pytest.mark.parametrize(
+    ("outcome", "verdict", "state"),
+    [
+        ("applied", "retimed", "fixed"),
+        ("pending", "retimed", "needs_retiming"),
+        ("partial", "mislabelled", "not_forced"),
+        ("pending", None, "waiting"),
+        ("failed", "retimed", "failed"),
+        ("dismissed", "retimed", "left"),
+        ("nothing", "in_sync", "in_sync"),
+        ("nothing", "mislabelled", "not_forced"),
+        ("nothing", None, "fine"),
+        (None, None, None),
+    ],
+)
+def test_state_of(outcome, verdict, state):
+    from talkarr.ui import state_of
+
+    assert state_of({"outcome": outcome, "verdict": verdict}) == state

@@ -161,6 +161,56 @@ def title_of(path):
     return name or os.path.basename(path)
 
 
+# What a subtitle's state is *now*: the verdict says what Talkarr found, the outcome
+# says what has happened since. Shown everywhere instead of the bare verdict.
+# key -> (label, CSS class, library filter)
+STATES = {
+    "fixed": ("Fixed", "fixed", {"outcome": "applied"}),
+    "in_sync": ("In sync", "in_sync", {"verdict": "in_sync"}),
+    "needs_retiming": ("Needs retiming", "retimed", {"verdict": "retimed", "outcome": "pending"}),
+    "not_forced": (
+        "Not a forced track",
+        "mislabelled",
+        {"verdict": "mislabelled", "outcome": "pending"},
+    ),
+    "waiting": ("Fix waiting", "retimed", {"outcome": "pending"}),
+    "failed": ("Fix failed", "mismatch", {"outcome": "failed"}),
+    "mismatch": ("Wrong film or cut", "mismatch", {"verdict": "mismatch"}),
+    "unverifiable": ("Can't verify", "unverifiable", {"verdict": "unverifiable"}),
+    "left": ("Left as is", "left", {"outcome": "dismissed"}),
+    "fine": ("Nothing to fix", "in_sync", {"outcome": "nothing"}),
+}
+STATE_ORDER = [
+    "fixed",
+    "in_sync",
+    "fine",
+    "needs_retiming",
+    "not_forced",
+    "waiting",
+    "failed",
+    "mismatch",
+    "unverifiable",
+    "left",
+]
+
+
+def state_of(job):
+    outcome, verdict = job.get("outcome"), job.get("verdict")
+    if outcome == "applied":
+        return "fixed"
+    if outcome == "failed":
+        return "failed"
+    if outcome == "dismissed":
+        return "left"
+    if outcome in ("pending", "partial"):
+        return {"retimed": "needs_retiming", "mislabelled": "not_forced"}.get(verdict, "waiting")
+    if verdict in ("in_sync", "mismatch", "unverifiable"):
+        return verdict
+    if verdict == "mislabelled":
+        return "not_forced"  # flagged only (MISLABELLED_ACTION=flag)
+    return "fine" if outcome == "nothing" else None
+
+
 def present(job):
     job = dict(job)
     proposal = _loads(job.get("proposal"), {})
@@ -175,6 +225,8 @@ def present(job):
     job["history"] = history
     job["applied_by"] = Mode.LABELS.get(history[-1].get("by"), "you") if history else None
     job["can_revert"] = bool(history)
+    job["state"] = state_of(job)
+    job["state_label"], job["state_class"], _ = STATES.get(job["state"], ("", "", {}))
     job["reason"] = plain_reason(job, report)
     job["detail_reason"] = report.get("reason") or _regular_reason(job)
     job["relpath"] = _relative(job["subtitle_path"])
@@ -260,7 +312,16 @@ def review_page():
         for j in db.get_jobs(outcome="nothing", review=True)
         if j["id"] not in {f["id"] for f in flagged_rows}
     ]
-    verdicts = db.count_by("verdict")
+    forced_states = {}
+    for row in db.get_jobs(sub_type="forced", limit=100000):
+        key = state_of(row)
+        if key:
+            forced_states[key] = forced_states.get(key, 0) + 1
+    states = [
+        (k, STATES[k][0], STATES[k][1], forced_states[k], STATES[k][2])
+        for k in STATE_ORDER
+        if forced_states.get(k)
+    ]
     statuses = db.count_by("status")
     return render_template(
         "review.html",
@@ -268,8 +329,8 @@ def review_page():
         waiting=waiting,
         fix_count=sum(j["proposed_count"] for j in waiting),
         flagged=[present(j) for j in flagged_rows],
-        verdicts=verdicts,
-        forced_total=sum(v for k, v in verdicts.items() if k),
+        states=states,
+        forced_total=sum(n for *_, n, _ in states),
         checked=statuses.get("completed", 0),
         busy=sum(statuses.get(s, 0) for s in BUSY_STATUSES),
     )

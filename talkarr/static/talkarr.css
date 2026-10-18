@@ -132,8 +132,10 @@ nav.main a[aria-current="page"] { color: var(--slate); box-shadow: inset 0 -2px 
 .v-mislabelled { background: var(--tally); opacity: .75; }
 .v-unverifiable { background: var(--neutral); opacity: .55; }
 .v-retimed { background: var(--subtitle); }
-.v-in_sync { background: var(--waveform); }
 .v-mismatch { background: var(--tally); }
+.v-fixed { background: var(--waveform); }
+.v-in_sync { background: var(--waveform); opacity: .5; }
+.v-left { background: var(--slate-4); }
 
 /* --- sections ----------------------------------------------------------------------------- */
 section + section { margin-top: 40px; }
@@ -228,6 +230,8 @@ input:hover, select:hover { border-color: var(--slate-4); }
 .verdict-retimed { background: var(--subtitle-wash); color: var(--subtitle); }
 .verdict-mislabelled, .verdict-mismatch { background: var(--tally-wash); color: var(--tally); }
 .verdict-unverifiable { background: rgba(138, 143, 152, 0.14); color: var(--neutral); }
+.verdict-fixed { background: var(--waveform); color: #06140e; }
+.verdict-left { background: rgba(255, 255, 255, 0.05); color: var(--slate-3); }
 .review-flag { font: 600 10px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--subtitle); }
 
 /* ribbon */
