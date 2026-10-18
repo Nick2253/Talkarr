@@ -192,7 +192,8 @@ button:active, .button:active { transform: scale(0.97); }
 .btn-ghost { color: var(--slate-3); }
 .btn-ghost:hover { color: var(--slate); background: var(--desk); }
 button[disabled] { background: var(--desk-raised); color: var(--slate-4); cursor: not-allowed; border-color: transparent; }
-button[data-armed] { background: var(--tally); color: #1b0605; }
+/* Armed destructive action: red, and it stays red under the pointer (beats :hover). */
+button[data-armed], button[data-armed]:hover { background: var(--tally); color: #1b0605; border-color: transparent; }
 
 input, select {
   max-width: 100%;
