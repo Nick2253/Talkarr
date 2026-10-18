@@ -87,6 +87,17 @@ def process():
     return jsonify({"status": "queued", "job_id": job_id})
 
 
+# Job statuses that mean "not queued and not being checked" (flagged, blacklisted and
+# skipped are from earlier versions).
+FINISHED = (
+    JobStatus.COMPLETED,
+    JobStatus.FAILED,
+    JobStatus.FLAGGED,
+    JobStatus.BLACKLISTED,
+    JobStatus.SKIPPED,
+)
+
+
 class ScanError(Exception):
     """A scan request that can't be started; the message is shown to the user."""
 
@@ -118,9 +129,9 @@ def queue_scan(directory, sub_filter="all", requeue=False):
             if not media_path:
                 continue
             existing = get_job_by_subtitle(subtitle_path)
-            if existing and existing["status"] not in (JobStatus.COMPLETED, JobStatus.FAILED):
+            if existing and existing["status"] not in FINISHED:
                 continue  # already queued or being checked
-            if existing and existing["status"] == JobStatus.COMPLETED and not requeue:
+            if existing and existing["status"] != JobStatus.FAILED and not requeue:
                 continue
             if existing:
                 update_job_status(existing["id"], JobStatus.PENDING)  # re-check in place

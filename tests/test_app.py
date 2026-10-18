@@ -229,3 +229,13 @@ def test_jobs_filters_and_detail(client):
     detail = client.get("/jobs/a").get_json()
     assert detail["report"]["forced_cues"] == 900
     assert client.get("/jobs/nope").status_code == 404
+
+
+def test_bulk_requeues_jobs_left_in_old_terminal_statuses(client, library):
+    bulk(client, library, filter="forced")
+    (job,) = db.get_recent_jobs()
+    db.update_job_status(job["id"], "flagged")
+    assert bulk(client, library, filter="forced") == 0
+    r = client.post("/bulk", json={"directory": str(library), "filter": "forced", "requeue": True})
+    assert r.get_json()["count"] == 1
+    assert db.get_job(job["id"])["status"] == JobStatus.PENDING
