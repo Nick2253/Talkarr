@@ -95,7 +95,8 @@ def configuration():
             "Fixes",
             "Mislabelled forced subtitles",
             "MISLABELLED_ACTION",
-            mislabelled_action().replace("_", " "),
+            mislabelled_action(),
+            "Full subtitles saved as forced. Removed or renamed files are backed up first.",
         ),
         item(
             "Fixes",

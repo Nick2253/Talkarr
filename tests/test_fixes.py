@@ -276,3 +276,9 @@ def test_configuration_masks_secrets_and_tracks_source(monkeypatch):
     assert "supersecret" not in json.dumps([r.__dict__ for r in rows.values()])
     assert rows["Webhook secret"].value == "not set"
     assert rows["Clean subtitles"].value == "on"
+
+
+def test_configuration_shows_the_exact_compose_value(monkeypatch):
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", "remove")
+    rows = {r.label: r for r in settings.configuration()}
+    assert rows["Mislabelled forced subtitles"].value == "remove_and_backup"
