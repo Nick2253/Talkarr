@@ -8,7 +8,7 @@ settings page; the change is stored in the database.
 import os
 from dataclasses import dataclass
 
-from . import db
+from . import db, mods
 from .config import Config
 
 
@@ -66,6 +66,7 @@ def configuration():
             group, label, env, str(value) if value != "" else "not set", env in os.environ, note
         )
 
+    unknown_mods = mods.parse(Config.SUBTITLE_MODS)[1]
     return [
         item(
             "Library",
@@ -113,6 +114,16 @@ def configuration():
             Config.SYNC_MIN_CONFIDENCE,
         ),
         item("Checks", "Clean subtitles", "CLEAN_ENABLED", Config.CLEAN_ENABLED),
+        item(
+            "Checks",
+            "Subtitle modifications",
+            "SUBTITLE_MODS",
+            Config.SUBTITLE_MODS,
+            "Bazarr's modifications, by Bazarr's names: common, remove_tags, OCR_fixes, "
+            "remove_HI, fix_uppercase, reverse_rtl, emoji, color(name=…). remove_HI never "
+            "touches hearing-impaired subtitles."
+            + (f" Not recognised: {', '.join(unknown_mods)}." if unknown_mods else ""),
+        ),
         item("Checks", "Sync regular and HI subtitles", "SYNC_ENABLED", Config.SYNC_ENABLED),
         item(
             "Checks",

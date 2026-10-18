@@ -111,6 +111,7 @@ since it was checked. The mode is the only setting changed in the UI (stored in 
 | `db.py` | SQLite: jobs (verdict, review, report, proposal, outcome, backup), settings |
 | `classifier.py` | forced / HI / regular from the filename |
 | `cleaner.py` | BOM, encoding (ftfy, cp1252 preferred on ties), ad/credit stripping (20 % guard); `write=False` for trials |
+| `mods.py` | Bazarr's subtitle modifications (own rules, same names), proposed as a safe and a confident fix; `remove_HI` skips HI subtitles |
 | `sync.py` | ffsubsync wrapper (`run_ffsubsync` into any output path; `sync_subtitle` in place) |
 | `validator.py` | Cue-density/duration/gap checks |
 | `fileio.py` | Atomic, metadata-preserving writes |
@@ -144,6 +145,7 @@ must be disabled.
 | `SYNC_MIN_OFFSET` | `0.15` | Smallest ffsubsync correction worth proposing (s) |
 | `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync confidence at which a sync counts as confident (Full Auto) |
 | `CLEAN_ENABLED` / `SYNC_ENABLED` / `FORCED_VERIFY_ENABLED` | `true` | Which checks run |
+| `SUBTITLE_MODS` | – | Bazarr's text modifications, by Bazarr's names: `common`, `remove_tags`, `OCR_fixes`, `remove_HI`, `fix_uppercase`, `reverse_rtl`, `emoji`, `color(name=…)` |
 | `TALKARR_ML_URL` | – | talkarr-ml (seastone: `http://talkarr-ml:8000`); empty disables the audio check |
 | `CACHE_DIR` | `/data/cache` | Synced references, audio analyses, trial-sync scratch |
 | `DATABASE_PATH` | `/data/talkarr.db` | SQLite database |

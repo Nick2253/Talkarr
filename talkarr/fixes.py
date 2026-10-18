@@ -17,6 +17,7 @@ import os
 import shutil
 import time
 
+from . import mods as text_mods
 from . import settings
 from .config import Config
 from .db import SubType
@@ -67,7 +68,7 @@ def fingerprint(path):
     return {"size": st.st_size, "mtime_ns": st.st_mtime_ns}
 
 
-def build(subtitle_path, sub_type, clean=None, sync=None, decision=None):
+def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=None):
     """Fixes for one subtitle from the pipeline's (never-written) results."""
     fixes = []
     if decision is not None and str(decision.verdict) == "mislabelled":
@@ -96,6 +97,22 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None):
                 },
             )
         )
+
+    if mods is not None and mods.success and mods.changed:
+        # One fix per tier, so Safe Auto can apply the safe ones and leave the rest.
+        for tier in (SAFE, CONFIDENT):
+            changes = {
+                k: n for k, n in mods.changes.items() if n and text_mods.MODS[k].tier == tier
+            }
+            if changes:
+                fixes.append(
+                    _fix(
+                        "mods",
+                        "Modify: " + text_mods.summary(changes),
+                        tier,
+                        {"mods": [[k, mods.args.get(k, {})] for k in changes]},
+                    )
+                )
 
     if sync is not None and sub_type != SubType.FORCED and getattr(sync, "success", False):
         offset = sync.offset or 0.0
@@ -207,7 +224,7 @@ def outcome(fixes):
 
 # --- applying --------------------------------------------------------------------------
 
-ORDER = {"clean": 0, "sync": 1, "retime": 1, "rename": 2, "remove": 2}
+ORDER = {"clean": 0, "mods": 1, "sync": 2, "retime": 2, "rename": 3, "remove": 3}
 
 
 class ApplyError(Exception):
@@ -253,6 +270,16 @@ def _apply_one(fix, job, path, overrides, backup, sync_runner):
         from .cleaner import clean_subtitle
 
         result = clean_subtitle(path, write=True)
+        if not result.success:
+            raise ApplyError(result.error)
+    elif kind == "mods":
+        result = text_mods.run(
+            path,
+            [(k, args) for k, args in fix["params"]["mods"]],
+            job.get("sub_type") or SubType.REGULAR,
+            job.get("language") or "",
+            write=True,
+        )
         if not result.success:
             raise ApplyError(result.error)
     elif kind in ("retime", "sync") and ("scale" in overrides or "offset" in overrides):

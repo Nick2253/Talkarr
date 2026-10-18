@@ -5,6 +5,7 @@ Shared by the worker (automatic modes) and the web UI (by hand).
 
 import json
 import logging
+import os
 
 from . import db, fixes
 from .db import JobStatus
@@ -42,6 +43,10 @@ def apply_job(job_id, indices=None, overrides=None, by="you"):
         raise ReviewError(str(e)) from e
     backup["by"] = by
     proposal["fixes"] = new_fixes
+    if os.path.isfile(job["subtitle_path"]):
+        # The file is now the fixed one: the fixes still waiting apply to it, so applying
+        # them later mustn't be refused as "changed since it was checked".
+        proposal["fingerprint"] = fixes.fingerprint(job["subtitle_path"])
     history = json.loads(job["backup"]) if job.get("backup") else []
     history = history if isinstance(history, list) else [history]
     history.append(backup)

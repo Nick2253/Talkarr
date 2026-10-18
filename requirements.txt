@@ -4,6 +4,7 @@ pysrt==1.1.2
 charset-normalizer==3.4.1
 rapidfuzz==3.14.6
 ftfy==6.3.1
+emoji==2.14.1
 requests==2.32.3
 ffsubsync==0.4.26
 # webrtcvad (ffsubsync's VAD) imports pkg_resources; python:3.12 images don't ship setuptools.

@@ -311,6 +311,25 @@ In these cases the review flag is cleared and the reason states the evidence.
   - If Bazarr has no record, Talkarr deletes the file directly. If Bazarr is unreachable, the
     file is left in place.
   - Verified read-only against Bazarr 1.6.2. This lands part of Phase 5 early.
+- First live blacklist (The Flintstones S05E26): Bazarr blacklisted subsource #2365773 and
+  downloaded #2365772, another full subtitle saved as forced. The owner accepts this loop:
+  each round blacklists one more mislabelled upload.
+- The Bazarr hook is configured (three-argument form: subtitle, video, language). Bazarr's
+  own sync and modifications are off.
+
+**2026-10-18, Bazarr's subtitle modifications.** Talkarr matches Bazarr's "Subtitle
+modifications" (owner: "at least match Bazarr's capability", configurable):
+- `SUBTITLE_MODS` takes Bazarr's names: `common`, `remove_tags`, `OCR_fixes`, `remove_HI`,
+  `fix_uppercase`, `reverse_rtl`, `emoji`, `color(name=…)`.
+- The rules are Talkarr's own (`talkarr/mods.py`), modelled on Bazarr's subzero mods,
+  which are GPL. OCR fixes cover the common English misreadings (l/I, |/I, 0/o), not
+  SubtitleEdit's full dictionaries.
+- The fixes are proposed in two tiers: safe (tags, emoji, common, RTL, colour) and
+  confident (OCR, HI removal, uppercase).
+- `remove_HI` never touches subtitles named as HI. Re-checking a modified file proposes
+  nothing (colour recolours instead of nesting; RTL only flips lines still broken).
+- Fixed along the way: applying one fix left the others un-appliable, because the
+  proposal's fingerprint still described the original file.
 
 ## 7. Open questions for the owner
 

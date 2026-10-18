@@ -12,7 +12,7 @@ import tempfile
 import threading
 import time
 
-from . import fixes, review, settings
+from . import fixes, mods, review, settings
 from .classifier import classify
 from .cleaner import clean_subtitle
 from .config import Config
@@ -62,6 +62,13 @@ def _process_job(job):
         if not clean_result.success:
             notes.append(f"cleaning check failed: {clean_result.error}")
 
+    mods_result = None
+    chosen_mods = mods.parse(Config.SUBTITLE_MODS)[0]
+    if chosen_mods:
+        mods_result = mods.run(path, chosen_mods, sub_type, job.get("language") or "")
+        if not mods_result.success:
+            notes.append(f"modifications check failed: {mods_result.error}")
+
     sync_result = None
     if Config.SYNC_ENABLED and sub_type != SubType.FORCED:
         update_job_status(job["id"], JobStatus.SYNCING)
@@ -80,7 +87,9 @@ def _process_job(job):
     val = validate(path, sub_type, sync_result.confidence if sync_result else None)
     update_job_validation(job["id"], val.score, {"issues": val.issues, "warnings": val.warnings})
 
-    proposed = fixes.build(path, sub_type, clean=clean_result, sync=sync_result, decision=decision)
+    proposed = fixes.build(
+        path, sub_type, clean=clean_result, sync=sync_result, decision=decision, mods=mods_result
+    )
     proposal = {"fingerprint": fixes.fingerprint(path), "fixes": proposed}
     update_job_proposal(job["id"], proposal, fixes.outcome(proposed))
     update_job_actions(job["id"], notes)

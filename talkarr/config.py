@@ -21,6 +21,10 @@ class Config:
     MEDIA_PATH = os.environ.get("MEDIA_PATH", "/media")
     SYNC_ENABLED = os.environ.get("SYNC_ENABLED", "true").lower() == "true"
     CLEAN_ENABLED = os.environ.get("CLEAN_ENABLED", "true").lower() == "true"
+    # Text modifications, with Bazarr's names (its "Subtitle modifications"), e.g.
+    # "common,remove_tags,OCR_fixes,remove_HI,fix_uppercase,reverse_rtl,emoji,color(name=yellow)".
+    # Empty turns them off. See talkarr/mods.py.
+    SUBTITLE_MODS = os.environ.get("SUBTITLE_MODS", "")
     SYNC_SCORE_THRESHOLD = float(os.environ.get("SYNC_SCORE_THRESHOLD", "0.4"))
     PATH_MAPPING = os.environ.get("PATH_MAPPING", "")
     # Operating mode at first start: manual | safe_auto | full_auto. The settings page can
