@@ -85,4 +85,5 @@ def recheck_job(job_id):
     job = db.get_job(job_id)
     if job is None:
         raise ReviewError("no such job")
+    db.set_job_source(job_id, "manual")  # ahead of any scan backlog
     db.update_job_status(job_id, JobStatus.PENDING)

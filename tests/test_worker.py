@@ -247,3 +247,40 @@ def test_mislabelled_forced_sub(tmp_path, forced_film, monkeypatch, action, full
     assert not forced.exists()
     if expected == "rename":
         assert (forced.parent / forced.name.replace(".en.forced.srt", ".en.srt")).exists()
+
+
+def test_queue_order_puts_rechecks_and_bazarr_before_a_scan_backlog(tmp_path, monkeypatch):
+    from talkarr import review
+
+    order = []
+    monkeypatch.setattr(
+        worker,
+        "_process_job",
+        lambda job: (order.append(job["id"]), db.update_job_status(job["id"], JobStatus.COMPLETED)),
+    )
+    db.create_job("scan1", "/m/1.srt", "", "en", source="bulk")
+    db.create_job("scan2", "/m/2.srt", "", "en", source="bulk")
+    db.create_job("old", "/m/0.srt", "", "en", source="bulk")
+    db.update_job_status("old", JobStatus.COMPLETED)
+    review.recheck_job("old")
+    db.create_job("hook", "/m/3.srt", "", "en", source="bazarr")
+
+    worker.process_pending_jobs()
+
+    assert order == ["old", "hook", "scan1", "scan2"]
+
+
+def test_jobs_queued_while_working_are_picked_up(tmp_path, monkeypatch):
+    order = []
+
+    def process(job):
+        order.append(job["id"])
+        db.update_job_status(job["id"], JobStatus.COMPLETED)
+        if job["id"] == "a":
+            db.create_job("late", "/m/late.srt", "", "en", source="bazarr")
+
+    monkeypatch.setattr(worker, "_process_job", process)
+    db.create_job("a", "/m/a.srt", "", "en", source="bulk")
+    db.create_job("b", "/m/b.srt", "", "en", source="bulk")
+    worker.process_pending_jobs()
+    assert order == ["a", "late", "b"]

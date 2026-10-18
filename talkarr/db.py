@@ -314,3 +314,23 @@ def requeue_interrupted():
         )
         db.commit()
         return cur.rowcount
+
+
+def next_pending():
+    """The next job to check: anything you or Bazarr queued goes before a scan backlog,
+    then oldest first."""
+    row = (
+        get_db()
+        .execute(
+            "SELECT * FROM jobs WHERE status = 'pending' "
+            "ORDER BY (source = 'bulk'), created_at, rowid LIMIT 1"
+        )
+        .fetchone()
+    )
+    return dict(row) if row else None
+
+
+def set_job_source(job_id, source):
+    with get_db() as db:
+        db.execute("UPDATE jobs SET source = ? WHERE id = ?", (source, job_id))
+        db.commit()

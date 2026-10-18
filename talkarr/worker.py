@@ -19,7 +19,7 @@ from .config import Config
 from .db import (
     JobStatus,
     SubType,
-    get_jobs_by_status,
+    next_pending,
     update_job_actions,
     update_job_classification,
     update_job_proposal,
@@ -37,7 +37,9 @@ log = logging.getLogger(__name__)
 
 
 def process_pending_jobs():
-    for job in get_jobs_by_status(JobStatus.PENDING):
+    """Check queued subtitles one at a time, re-reading the queue after each, so a
+    re-check or a new subtitle from Bazarr doesn't wait behind a whole scan."""
+    while (job := next_pending()) is not None:
         try:
             _process_job(job)
         except Exception as e:
