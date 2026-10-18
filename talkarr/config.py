@@ -17,12 +17,21 @@ class Config:
     MEDIA_PATH = os.environ.get("MEDIA_PATH", "/media")
     SYNC_ENABLED = os.environ.get("SYNC_ENABLED", "true").lower() == "true"
     CLEAN_ENABLED = os.environ.get("CLEAN_ENABLED", "true").lower() == "true"
-    GENERATE_ENABLED = os.environ.get("GENERATE_ENABLED", "false").lower() == "true"
     SYNC_SCORE_THRESHOLD = float(os.environ.get("SYNC_SCORE_THRESHOLD", "0.4"))
     PATH_MAPPING = os.environ.get("PATH_MAPPING", "")
-    # Report-only unless explicitly turned off: jobs record what they would do and the
-    # library is never written. Defaults to true so a misconfigured deploy stays safe.
-    DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+    # Operating mode at first start: manual | safe_auto | full_auto. The settings page can
+    # change it at runtime (stored in the database); this is only the default.
+    MODE = os.environ.get("TALKARR_MODE", "manual").lower()
+    # What applying a "mislabelled forced subtitle" fix does:
+    #   remove           - delete it (backed up), e.g. so Bazarr fetches a real forced track
+    #   rename_or_remove - rename it to the regular subtitle if there is none, else delete
+    #   flag             - never touch it; only report it
+    MISLABELLED_ACTION = os.environ.get("MISLABELLED_ACTION", "rename_or_remove").lower()
+    BACKUP_DIR = os.environ.get("BACKUP_DIR", "/data/backups")
+    # Regular/HI syncs are proposed when ffsubsync moves a subtitle at least this much,
+    # and count as confident (applied in Full Auto) at or above this confidence.
+    SYNC_MIN_OFFSET = float(os.environ.get("SYNC_MIN_OFFSET", "0.15"))
+    SYNC_MIN_CONFIDENCE = float(os.environ.get("SYNC_MIN_CONFIDENCE", "0.8"))
     FORCED_VERIFY_ENABLED = os.environ.get("FORCED_VERIFY_ENABLED", "true").lower() == "true"
     ML_URL = os.environ.get("TALKARR_ML_URL", "")
     CACHE_DIR = os.environ.get("CACHE_DIR", "/data/cache")

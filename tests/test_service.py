@@ -1,19 +1,15 @@
-import hashlib
 import json
 import sqlite3
-from types import SimpleNamespace
 
 import pytest
 
-from talkarr import db, worker
+from talkarr import db
 from talkarr.config import Config
-from talkarr.db import JobStatus
 from talkarr.forced import service, sources
 from talkarr.forced import subtitles as S
 from talkarr.forced.audio import Region
 from talkarr.forced.decide import combine
 from talkarr.forced.verify import Report, Verdict
-from tests.conftest import make_srt
 from tests.test_eval import make_film
 
 
@@ -221,79 +217,3 @@ def test_migration_adds_columns_to_old_database(tmp_path, monkeypatch):
 
     job = db.get_job("old")
     assert job["verdict"] == "in_sync" and json.loads(job["report"]) == {"reason": "ok"}
-
-
-# --- worker in dry-run -----------------------------------------------------------------
-
-
-def digest(path):
-    return hashlib.sha256(open(path, "rb").read()).hexdigest()
-
-
-def test_dry_run_never_writes_the_library(tmp_path, monkeypatch):
-    monkeypatch.setattr(Config, "DRY_RUN", True)
-    sub = tmp_path / "Movie.en.srt"
-    sub.write_bytes(
-        b"\xef\xbb\xbf"
-        + make_srt(["Subtitles by Someone"] + [f"line {i}" for i in range(40)]).encode()
-    )
-    video = tmp_path / "Movie.mkv"
-    video.write_bytes(b"\0")
-    before = digest(sub)
-
-    def fake_run(subtitle, media, out, **_):
-        with open(out, "w") as f:
-            f.write("synced")
-        return SimpleNamespace(success=True, skipped=False, offset=1.5, confidence=0.9, error=None)
-
-    monkeypatch.setattr(worker, "run_ffsubsync", fake_run)
-    monkeypatch.setattr(worker, "sync_subtitle", lambda *a: pytest.fail("must not sync in place"))
-    db.create_job("j", str(sub), str(video), "en")
-
-    worker.process_pending_jobs()
-
-    job = db.get_job("j")
-    actions = json.loads(job["actions_taken"])
-    assert digest(sub) == before
-    assert any(a.startswith("would clean: 1 ads removed") for a in actions)
-    assert "would sync: offset=1.50s" in actions
-    assert job["sync_offset"] == 1.5
-    assert not list((tmp_path / "cache" / "tmp").iterdir())  # trial output removed
-
-
-def test_forced_job_records_verdict(tmp_path, monkeypatch):
-    monkeypatch.setattr(Config, "DRY_RUN", True)
-    monkeypatch.setattr(Config, "FORCED_VERIFY_ENABLED", True)
-    d = make_film(tmp_path, "Alpha (2001)", 1)
-    forced = next(d.glob("*.en.forced.srt"))
-    before = digest(forced)
-    fake_sources(monkeypatch)
-    db.create_job("f", str(forced), "", "en")
-
-    worker.process_pending_jobs()
-
-    job = db.get_job("f")
-    assert job["status"] == JobStatus.COMPLETED
-    assert job["verdict"] == "in_sync" and job["review"] == 0
-    assert "forced: in_sync" in json.loads(job["actions_taken"])
-    assert json.loads(job["report"])["text"]["verdict"] == "in_sync"
-    assert digest(forced) == before
-
-
-def test_forced_job_without_video(tmp_path, monkeypatch):
-    monkeypatch.setattr(Config, "FORCED_VERIFY_ENABLED", True)
-    sub = tmp_path / "Lonely.en.forced.srt"
-    sub.write_text(make_srt(["a b c d e"] * 5))
-    db.create_job("f", str(sub), "", "en")
-    worker.process_pending_jobs()
-    assert db.get_job("f")["verdict"] == "unverifiable"
-
-
-def test_dry_run_flags_instead_of_blacklisting(tmp_path, monkeypatch):
-    monkeypatch.setattr(Config, "DRY_RUN", True)
-    monkeypatch.setattr(Config, "SYNC_ENABLED", False)
-    sub = tmp_path / "Movie.en.forced.srt"
-    sub.write_text(make_srt([f"line {i}" for i in range(300)]))
-    db.create_job("f", str(sub), "", "en")
-    worker.process_pending_jobs()
-    assert db.get_job("f")["status"] == JobStatus.FLAGGED

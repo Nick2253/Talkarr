@@ -1,0 +1,17 @@
+{% macro kind_chip(sub_type) -%}
+  {%- set label = {'forced': 'Forced', 'hi': 'HI', 'regular': 'Regular'}.get(sub_type, sub_type or '?') -%}
+  <span class="kind kind-{{ sub_type }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro fix_lines(fixes) -%}
+  <div class="fix-lines">
+    {% for f in fixes %}
+      <span class="fix-line {{ f.state }}"><span class="tier tier-{{ f.tier }}" title="{{ tier_names[f.tier] }}"></span>{{ f.summary }}</span>
+    {% endfor %}
+  </div>
+{%- endmacro %}
+
+{% macro confirm_attrs(fixes) -%}
+  {%- set destructive = fixes | selectattr('state', 'equalto', 'proposed') | selectattr('kind', 'in', ['remove', 'rename']) | list -%}
+  {%- if destructive %} data-confirm="{{ 'Remove the file?' if destructive[0].kind == 'remove' else 'Rename the file?' }}"{% endif -%}
+{%- endmacro %}

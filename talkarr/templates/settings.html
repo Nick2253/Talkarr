@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Settings · Talkarr{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Settings</h1>
+  <p>The mode is the one setting you change here. Everything else comes from the compose file; edit it there and redeploy the stack.</p>
+</div>
+<div class="settings-grid">
+  <div class="panel">
+    <h2>Mode</h2>
+    <form method="post" action="{{ url_for('ui.mode_action') }}">
+      <fieldset class="switch">
+        <legend class="visually-hidden">Mode</legend>
+        {% for key, label, text in modes %}
+        <label class="pos{% if key == 'full_auto' %} full{% endif %}">
+          <input type="radio" name="mode" value="{{ key }}" {% if key == mode %}checked{% endif %}>
+          <span class="dot"></span><strong>{{ label }}</strong><small>{{ text }}</small>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <div class="acts" style="justify-content:flex-start;margin-top:16px">
+        <button class="btn-apply" type="submit">Save mode</button>
+      </div>
+    </form>
+    <p class="muted" style="font-size:12px;margin-top:14px">Changing the mode never touches fixes that are already waiting; it decides what happens to subtitles checked from now on.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Configuration</h2><span>read-only</span></div>
+    <dl class="spec">
+      {% for group, items in config_groups %}
+        <h3>{{ group }}</h3>
+        {% for s in items %}
+        <div class="item">
+          <dt>{{ s.label }}<code>{{ s.env }}</code></dt>
+          <dd>{{ s.value }}</dd>
+          <span class="src{% if s.from_env %} compose{% endif %}">{{ 'compose' if s.from_env else 'default' }}</span>
+          {% if s.note %}<span class="note">{{ s.note }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      {% endfor %}
+    </dl>
+  </div>
+</div>
+{% endblock %}

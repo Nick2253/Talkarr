@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Review · Talkarr{% endblock %}
+{% block content %}
+<section class="lede">
+  <span class="eyebrow">{{ mode_label }} mode</span>
+  {% if waiting %}
+    <h1><em>{{ fix_count }} fix{{ '' if fix_count == 1 else 'es' }}</em> on {{ waiting|length }} subtitle{{ '' if waiting|length == 1 else 's' }} {{ 'is' if waiting|length == 1 else 'are' }} waiting for you.</h1>
+  {% else %}
+    <h1>Nothing is waiting for you.</h1>
+  {% endif %}
+  <p>{{ mode_sentence }}{% if checked %} Talkarr has checked {{ checked }} subtitle{{ '' if checked == 1 else 's' }}{% if busy %}; {{ busy }} more {{ 'is' if busy == 1 else 'are' }} queued{% endif %}.{% endif %}</p>
+  {% if forced_total %}
+  <div class="verdicts" aria-label="Verdicts for {{ forced_total }} forced subtitles">
+    <div class="track">
+      {% for key, label in verdict_labels %}{% if verdicts.get(key) %}<span class="v-{{ key }}" style="flex: {{ verdicts[key] }}"></span>{% endif %}{% endfor %}
+    </div>
+    <div class="legend">
+      <span class="eyebrow">Forced subtitles</span>
+      {% for key, label in verdict_labels %}{% if verdicts.get(key) %}<a href="{{ url_for('ui.library_page', verdict=key) }}"><i class="v-{{ key }}"></i>{{ label }} <b>{{ verdicts[key] }}</b></a>{% endif %}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<section aria-labelledby="waiting-h">
+  <div class="section-head"><h2 id="waiting-h">Waiting for you</h2><span class="meta">{{ waiting|length }} subtitle{{ '' if waiting|length == 1 else 's' }} · most recent first</span></div>
+  {% if waiting %}
+  <ul class="queue">
+    {% for j in waiting %}
+    <li class="row">
+      <div class="film">
+        <a href="{{ url_for('ui.job_page', job_id=j.id) }}"><strong>{{ m.kind_chip(j.sub_type) }}{{ j.title }}</strong></a>
+        <span class="file" title="{{ j.subtitle_path }}">{{ j.file }}</span>
+      </div>
+      <div class="fix-lines">
+        {{ m.fix_lines(j.fixes) }}
+        {% if j.reason %}<span class="why">{{ j.reason }}</span>{% endif %}
+      </div>
+      <div class="acts">
+        <form method="post" action="{{ url_for('ui.apply_action', job_id=j.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="btn-apply" type="submit"{{ m.confirm_attrs(j.fixes) }}>Apply{% if j.proposed_count > 1 %} {{ j.proposed_count }}{% endif %}</button>
+        </form>
+        <a class="button btn-quiet" href="{{ url_for('ui.job_page', job_id=j.id) }}">Open</a>
+        <form method="post" action="{{ url_for('ui.dismiss_action', job_id=j.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="btn-ghost" type="submit">Dismiss</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty">
+    <strong>All caught up.</strong>
+    <span>New subtitles from Bazarr land here when Talkarr has a fix for them. To check subtitles you already have, start a scan from the <a href="{{ url_for('ui.library_page') }}">Library</a>.</span>
+  </div>
+  {% endif %}
+</section>
+
+{% if flagged %}
+<section aria-labelledby="flagged-h">
+  <div class="section-head"><h2 id="flagged-h">Flagged, no automatic fix</h2><span class="meta">Talkarr found a problem it can't fix on its own</span></div>
+  <ul class="queue">
+    {% for j in flagged %}
+    <li class="row">
+      <div class="film">
+        <a href="{{ url_for('ui.job_page', job_id=j.id) }}"><strong>{{ m.kind_chip(j.sub_type) }}{{ j.title }}</strong></a>
+        <span class="file" title="{{ j.subtitle_path }}">{{ j.file }}</span>
+      </div>
+      <div class="fix-lines">
+        <span class="fix-line"><span class="verdict verdict-{{ j.verdict }}">{{ verdict_names.get(j.verdict, j.verdict) }}</span></span>
+        <span class="why">{{ j.reason }}</span>
+      </div>
+      <div class="acts"><a class="button btn-quiet" href="{{ url_for('ui.job_page', job_id=j.id) }}">Open</a></div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

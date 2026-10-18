@@ -69,6 +69,10 @@ _ADDED_COLUMNS = {
     "verdict": "TEXT",  # forced-subtitle verdict (in_sync, retimed, mislabelled, ...)
     "review": "INTEGER DEFAULT 0",  # verdict is plausible but needs a human look
     "report": "TEXT",  # JSON: reason, proposed correction, evidence details
+    "proposal": "TEXT",  # JSON list of fixes (see talkarr/fixes.py)
+    "outcome": "TEXT",  # pending | applied | partial | dismissed | nothing | failed
+    "applied_at": "REAL",
+    "backup": "TEXT",  # JSON: what was backed up/changed, for revert
 }
 
 
@@ -78,6 +82,10 @@ def _migrate(db):
         if column not in existing:
             db.execute(f"ALTER TABLE jobs ADD COLUMN {column} {decl}")
     db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_verdict ON jobs(verdict)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_outcome ON jobs(outcome)")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at REAL)"
+    )
     db.commit()
 
 
@@ -213,3 +221,70 @@ def get_stats():
     total = db.execute("SELECT COUNT(*) as count FROM jobs").fetchone()
     stats["total"] = total["count"]
     return stats
+
+
+def update_job_proposal(job_id, fixes, outcome):
+    with get_db() as db:
+        db.execute(
+            "UPDATE jobs SET proposal = ?, outcome = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(fixes), outcome, time.time(), job_id),
+        )
+        db.commit()
+
+
+def update_job_applied(job_id, fixes, outcome, backup):
+    now = time.time()
+    with get_db() as db:
+        db.execute(
+            "UPDATE jobs SET proposal = ?, outcome = ?, backup = ?, applied_at = ?, "
+            "updated_at = ? WHERE id = ?",
+            (json.dumps(fixes), outcome, json.dumps(backup), now, now, job_id),
+        )
+        db.commit()
+
+
+def get_jobs(outcome=None, verdict=None, sub_type=None, review=None, search=None, limit=200):
+    clauses, params = [], []
+    for column, value in (("outcome", outcome), ("verdict", verdict), ("sub_type", sub_type)):
+        if value:
+            values = value if isinstance(value, (list, tuple)) else [value]
+            clauses.append(f"{column} IN ({','.join('?' * len(values))})")
+            params.extend(values)
+    if review is not None:
+        clauses.append("review = ?")
+        params.append(1 if review else 0)
+    if search:
+        clauses.append("subtitle_path LIKE ?")
+        params.append(f"%{search}%")
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+    rows = (
+        get_db()
+        .execute(f"SELECT * FROM jobs {where}ORDER BY updated_at DESC LIMIT ?", (*params, limit))
+        .fetchall()
+    )
+    return [dict(r) for r in rows]
+
+
+def count_by(column):
+    rows = (
+        get_db()
+        .execute(f"SELECT {column} AS k, COUNT(*) AS n FROM jobs GROUP BY {column}")
+        .fetchall()
+    )
+    return {r["k"]: r["n"] for r in rows}
+
+
+def get_setting(key, default=None):
+    row = get_db().execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, time.time()),
+        )
+        db.commit()

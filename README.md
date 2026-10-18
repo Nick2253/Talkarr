@@ -9,6 +9,29 @@ Subtitle clean-up tool for an existing media library, designed to sit alongside 
 - **Validate** — Checks cue density, duration sanity, mislabel detection (200-cue "forced" sub = mislabeled regular sub). Blacklists bad subs via Bazarr API and triggers re-search.
 - **Forced-subtitle verification & sync** *(in development)*: detects the non-English speech in the audio, translates it, and uses it as timed anchors to check that a forced subtitle belongs to this release, and to re-time it. It also detects full subtitles mislabelled as forced. See [docs/PLAN.md](docs/PLAN.md).
 
+## Web UI
+
+Talkarr's dashboard (port 9494) is where you review its work:
+
+- **Review**: the fixes waiting for you, each stated plainly ("Retime 25 → 23.976 fps,
+  −0.90 s"), with Apply, Open and Dismiss.
+- **Job page**: the evidence, the *cue ribbon* (where each cue sits now, after the fix,
+  and where the foreign speech is), an Adjust panel to tweak a retime before applying,
+  and Restore for anything already changed.
+- **Library**: scan folders you already have, and browse every checked subtitle.
+- **Activity**: what was applied or dismissed, with Restore.
+- **Settings**: the mode, plus a read-only view of the compose configuration.
+
+### Modes
+
+| Mode | What Talkarr does on its own |
+|------|------------------------------|
+| Manual | Nothing. It proposes fixes; you apply them. |
+| Safe Auto | Applies corroborated, reversible fixes: cleaning, and forced retimes both checks agree on. |
+| Full Auto | Applies every fix it is confident about, including syncs and handling mislabelled files per `MISLABELLED_ACTION`. |
+
+Uncertain fixes always wait for you. Every change backs up the original first.
+
 ## How it integrates
 
 Bazarr downloads subtitles from providers; its Custom Post-Processing can notify Talkarr about each new subtitle (`POST /process`). Library-wide clean-up runs through `POST /bulk`.
@@ -24,27 +47,17 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements-dev.txt
 
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BAZARR_URL` | `http://bazarr:6767` | Bazarr API URL |
-| `BAZARR_API_KEY` | | Bazarr API key |
-| `RADARR_URL` | `http://radarr:7878` | Radarr API URL |
-| `RADARR_API_KEY` | | Radarr API key |
-| `SONARR_URL` | `http://sonarr:8989` | Sonarr API URL |
-| `SONARR_API_KEY` | | Sonarr API key |
-| `WHISPER_URL` | | OpenAI-compatible Whisper API (for forced sub generation) |
-| `WHISPER_MODEL` | `whisper-large-v3-turbo` | Whisper model name |
-| `TALKARR_WEBHOOK_SECRET` | | Optional Bearer token for webhook auth |
-| `DISCORD_WEBHOOK_URL` | | Discord webhook for notifications |
-| `DATABASE_PATH` | `/data/talkarr.db` | SQLite database path |
-| `BASE_URL` | `http://talkarr:9494` | External URL for dashboard links |
-| `MEDIA_PATH` | `/media` | Media root for bulk scans |
-| `SYNC_ENABLED` | `true` | Enable ffsubsync |
-| `CLEAN_ENABLED` | `true` | Enable ad/encoding cleaning |
-| `DRY_RUN` | `true` | Report only: record what would change, never write to the library |
-| `FORCED_VERIFY_ENABLED` | `true` | Verify forced subtitles and record a verdict |
-| `TALKARR_ML_URL` | | talkarr-ml (speech detection + language ID) base URL; enables the audio check |
-| `CACHE_DIR` | `/data/cache` | Evidence caches |
+Set everything in the compose file; the Settings page shows it read-only. The mode can be
+changed on the Settings page. The full list, with defaults, is in
+[CLAUDE.md](CLAUDE.md#environment-variables). The ones you will usually set:
+
+| Variable | Example | |
+|----------|---------|---|
+| `MEDIA_PATH` | `/media` | Media root inside the container |
+| `PATH_MAPPING` | `/data:/media` | Bazarr's paths → Talkarr's |
+| `TALKARR_MODE` | `manual` | Starting mode |
+| `MISLABELLED_ACTION` | `remove` | `remove` (e.g. let Bazarr fetch a real forced track), `rename_or_remove`, or `flag` |
+| `TALKARR_ML_URL` | `http://talkarr-ml:8000` | Speech analysis for the forced-subtitle audio check |
 
 ## Endpoints
 

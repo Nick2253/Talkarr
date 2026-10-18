@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Activity · Talkarr{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Activity</h1>
+  <p>What has been changed and what you set aside. Every change keeps a backup of the original, so you can restore it here.</p>
+</div>
+<section>
+  <div class="chips" style="padding-bottom:16px">
+    {% for k, label in [('', 'Everything'), ('applied', 'Applied'), ('partial', 'Partly applied'), ('failed', 'Failed'), ('dismissed', 'Dismissed')] %}
+      <a href="{{ url_for('ui.activity_page', outcome=k or None) }}" {% if (outcome or '') == k %}aria-current="true"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  {% if jobs %}
+  <ul class="queue">
+    {% for j in jobs %}
+    <li class="row">
+      <div class="film">
+        <a href="{{ url_for('ui.job_page', job_id=j.id) }}"><strong>{{ m.kind_chip(j.sub_type) }}{{ j.title }}</strong></a>
+        <span class="file">{{ j.file }}</span>
+      </div>
+      <div class="fix-lines">
+        {{ m.fix_lines(j.fixes) }}
+        <span class="why">{{ outcome_names.get(j.outcome, j.outcome) }}{% if j.applied_by %} by {{ j.applied_by }}{% endif %} · {{ (j.applied_at or j.updated_at) | ago }}</span>
+      </div>
+      <div class="acts">
+        {% if j.can_revert %}
+        <form method="post" action="{{ url_for('ui.revert_action', job_id=j.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="btn-quiet" type="submit" data-confirm="Restore the original?">Restore original</button>
+        </form>
+        {% endif %}
+        <a class="button btn-ghost" href="{{ url_for('ui.job_page', job_id=j.id) }}">Open</a>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty"><strong>Nothing here yet.</strong><span>Fixes you apply, and fixes the automatic modes apply, are listed here.</span></div>
+  {% endif %}
+</section>
+{% endblock %}

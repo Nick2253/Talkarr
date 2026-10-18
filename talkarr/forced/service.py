@@ -42,6 +42,7 @@ def verify_forced(forced_path, video, cache_dir, ml_url=""):
         details["text"] = text_report.as_dict()
 
     audio_report = None
+    speech, runtime = [], None
     if ml_url and len(forced) > 0:
         try:
             regions, info = sources.film_regions(video, os.path.join(cache_dir, "audio"), ml_url)
@@ -50,10 +51,19 @@ def verify_forced(forced_path, video, cache_dir, ml_url=""):
             regions, info = None, {"ok": False, "error": f"{type(e).__name__}: {e}"}
         details["audio_analysis"] = info
         if regions is not None:
+            runtime = info.get("duration")
             timeline = foreign_timeline(regions)
+            speech = [[round(a, 2), round(b, 2)] for a, b in timeline.foreign]
             fit = fit_timeline(forced, timeline.foreign)
             audio_report = verify_audio(forced, fit, timeline.foreign)
             details["audio"] = audio_report.as_dict()
 
     decision = combine(text_report, audio_report)
+    # What the review page draws: the cues, the film's length, the foreign speech.
+    ends = [c.end for c in forced]
+    details["ribbon"] = {
+        "runtime": round(runtime or (max(ends + [0.0]) + 60.0), 1),
+        "cues": [[round(c.start, 3), round(c.end, 3)] for c in forced],
+        "speech": speech,
+    }
     return decision, details

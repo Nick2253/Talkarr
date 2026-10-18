@@ -278,6 +278,25 @@ independent evidence supported them, so `decide.combine` now counts agreement:
 
 In these cases the review flag is cleared and the reason states the evidence.
 
+**2026-10-17, the web UI (Phase 4).**
+- Owner decisions:
+  - **Modes:** *Manual*, *Safe Auto* and *Full Auto* ("Dry run" was rejected as a name).
+  - **Configuration:** comes from compose and is shown read-only; only the mode is changed in the UI.
+  - **Mislabelled handling:** a compose setting, `MISLABELLED_ACTION`. The owner uses `remove` and
+    lets Bazarr find a replacement.
+  - **Look:** dark only.
+- Every job now ends in a *proposal*: fixes, each with a tier.
+  - **safe:** corroborated and reversible.
+  - **confident:** one strong check, or it removes or renames a file.
+  - **uncertain:** needs a person.
+  - The mode applies tiers automatically. Applying backs the original up, refuses if the file
+    changed since the check, and can be reverted.
+- UI in the "QC bay" direction (`.interface-design/system.md`): Review queue, job page with the
+  cue ribbon and an Adjust panel, Library with scan and progress, Activity with Restore,
+  Settings with the mode switch and a read-only spec sheet.
+- Verified in headless Chromium at 1280 and 390 px: remove (two-click confirm), adjust and
+  apply a retime, restore, switch mode; no console errors or horizontal overflow.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

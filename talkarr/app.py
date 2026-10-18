@@ -4,7 +4,7 @@ import logging
 import os
 import uuid
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, request
 
 from .config import Config
 from .db import (
@@ -27,150 +27,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
-
-DASHBOARD_PAGE = """<!doctype html>
-<html>
-<head>
-<title>Talkarr</title>
-<style>
-  :root { --bg: #0f0f1a; --card: #1a1a2e; --accent: #16213e;
-          --border: #2a2a4a; --text: #e0e0e0; --dim: #888;
-          --green: #2ecc71; --red: #e74c3c; --yellow: #f1c40f;
-          --blue: #3498db; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif;
-         background: var(--bg); color: var(--text); padding: 2rem; }
-  h1 { font-size: 1.6rem; margin-bottom: 1.5rem; }
-  .stats { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-  .stat { background: var(--card); border: 1px solid var(--border);
-          border-radius: 8px; padding: 1rem 1.5rem; min-width: 120px; }
-  .stat-value { font-size: 1.8rem; font-weight: 700; }
-  .stat-label { color: var(--dim); font-size: 0.8rem; text-transform: uppercase;
-                letter-spacing: 0.05em; margin-top: 0.2rem; }
-  table { width: 100%; border-collapse: collapse; background: var(--card);
-          border-radius: 8px; overflow: hidden; }
-  th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
-  th { background: var(--accent); color: var(--dim); font-size: 0.75rem;
-       text-transform: uppercase; letter-spacing: 0.05em; }
-  td { font-size: 0.85rem; }
-  .status { padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem;
-            font-weight: 600; display: inline-block; }
-  .status-completed { background: rgba(46,204,113,0.15); color: var(--green); }
-  .status-failed, .status-blacklisted { background: rgba(231,76,60,0.15); color: var(--red); }
-  .status-pending, .status-classifying, .status-syncing, .status-cleaning,
-  .status-validating { background: rgba(52,152,219,0.15); color: var(--blue); }
-  .status-skipped { background: rgba(241,196,15,0.15); color: var(--yellow); }
-  .type { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem;
-          font-weight: 600; text-transform: uppercase; }
-  .type-forced { background: rgba(241,196,15,0.15); color: var(--yellow); }
-  .type-regular { background: rgba(52,152,219,0.15); color: var(--blue); }
-  .type-hi { background: rgba(155,89,182,0.15); color: #9b59b6; }
-  .path { max-width: 400px; overflow: hidden; text-overflow: ellipsis;
-          white-space: nowrap; font-family: monospace; font-size: 0.8rem; }
-  .score { font-weight: 600; }
-  .score-good { color: var(--green); }
-  .score-warn { color: var(--yellow); }
-  .score-bad { color: var(--red); }
-  .empty { text-align: center; padding: 3rem; color: var(--dim); }
-  .banner { background: rgba(241,196,15,0.12); border: 1px solid rgba(241,196,15,0.4);
-            color: var(--yellow); border-radius: 8px; padding: 0.6rem 1rem; margin-bottom: 1.5rem;
-            font-size: 0.85rem; }
-  .filters { margin-bottom: 1rem; font-size: 0.8rem; color: var(--dim); }
-  .filters a { color: var(--blue); margin-right: 0.8rem; text-decoration: none; }
-  .filters a.on { color: var(--text); font-weight: 700; }
-  .verdict { padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600; }
-  .verdict-in_sync { background: rgba(46,204,113,0.15); color: var(--green); }
-  .verdict-retimed { background: rgba(52,152,219,0.15); color: var(--blue); }
-  .verdict-mislabelled, .verdict-mismatch { background: rgba(231,76,60,0.15); color: var(--red); }
-  .verdict-unverifiable { background: rgba(136,136,136,0.15); color: var(--dim); }
-  .review { color: var(--yellow); font-size: 0.7rem; font-weight: 700; margin-left: 0.3rem; }
-  .status-flagged { background: rgba(241,196,15,0.15); color: var(--yellow); }
-  .status-verifying { background: rgba(52,152,219,0.15); color: var(--blue); }
-  .reason { font-size: 0.75rem; color: var(--dim); max-width: 420px; }
-  @media (max-width: 800px) { body { padding: 1rem; } .hide-sm { display: none; } }
-</style>
-</head>
-<body>
-  <h1>Talkarr</h1>
-  {% if dry_run %}<div class="banner"><strong>DRY RUN</strong>: jobs record what they would do; nothing in the library is changed.</div>{% endif %}
-  <div class="stats">
-    <div class="stat">
-      <div class="stat-value">{{ stats.get('total', 0) }}</div>
-      <div class="stat-label">Total</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" style="color: var(--green)">{{ stats.get('completed', 0) }}</div>
-      <div class="stat-label">Completed</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" style="color: var(--red)">{{ stats.get('failed', 0) + stats.get('blacklisted', 0) + stats.get('flagged', 0) }}</div>
-      <div class="stat-label">Failed / flagged</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" style="color: var(--blue)">{{ stats.get('pending', 0) }}</div>
-      <div class="stat-label">Pending</div>
-    </div>
-  </div>
-  <div class="filters">
-    Show:
-    <a href="/" class="{{ 'on' if not verdict and not review }}">all</a>
-    <a href="/?review=1" class="{{ 'on' if review }}">needs review</a>
-    {% for v in ['retimed', 'mismatch', 'mislabelled', 'in_sync', 'unverifiable'] %}
-      <a href="/?verdict={{ v }}" class="{{ 'on' if verdict == v }}">{{ v }}</a>
-    {% endfor %}
-  </div>
-  {% if jobs %}
-  <table>
-    <thead>
-      <tr>
-        <th>File</th>
-        <th>Type</th>
-        <th>Status</th>
-        <th>Forced verdict</th>
-        <th class="hide-sm">Score</th>
-        <th class="hide-sm">Sync Offset</th>
-        <th class="hide-sm">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for job in jobs %}
-      <tr>
-        <td class="path" title="{{ job.subtitle_path }}">{{ job.subtitle_path.split('/')[-1] if job.subtitle_path else 'Unknown' }}</td>
-        <td><span class="type type-{{ job.sub_type or 'unknown' }}">{{ job.sub_type or '?' }}</span></td>
-        <td><span class="status status-{{ job.status }}">{{ job.status }}</span></td>
-        <td>
-          {% if job.verdict %}
-            <a href="/jobs/{{ job.id }}" style="text-decoration:none"><span class="verdict verdict-{{ job.verdict }}">{{ job.verdict }}</span></a>{% if job.review %}<span class="review">REVIEW</span>{% endif %}
-            <div class="reason">{{ job.reason or '' }}</div>
-          {% else %}-{% endif %}
-        </td>
-        <td class="hide-sm">
-          {% if job.validation_score is not none %}
-            <span class="score {% if job.validation_score >= 0.7 %}score-good{% elif job.validation_score >= 0.4 %}score-warn{% else %}score-bad{% endif %}">
-              {{ "%.0f"|format(job.validation_score * 100) }}%
-            </span>
-          {% else %}-{% endif %}
-        </td>
-        <td class="hide-sm">{{ "%.2fs"|format(job.sync_offset) if job.sync_offset is not none else '-' }}</td>
-        <td class="hide-sm" style="font-size: 0.75rem; color: var(--dim); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-            title="{{ job.actions_taken or '' }}">
-          {{ job.actions_taken or '-' }}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">No jobs{% if verdict or review %} match this filter{% else %} yet{% endif %}.</div>
-  {% endif %}
-</body>
-</html>
-"""
+# Only signs the flash-message cookie; a fresh key per start just drops pending flashes.
+app.secret_key = os.environ.get("TALKARR_SECRET_KEY") or os.urandom(32)
 
 
 @app.before_request
 def _check_webhook_secret():
-    if request.path == "/process" and Config.WEBHOOK_SECRET:
+    if request.path in ("/process", "/bulk") and Config.WEBHOOK_SECRET:
         auth = request.headers.get("Authorization", "")
         if auth != f"Bearer {Config.WEBHOOK_SECRET}":
             return jsonify({"error": "unauthorized"}), 401
@@ -179,27 +42,6 @@ def _check_webhook_secret():
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
-
-
-@app.route("/")
-def dashboard():
-    verdict = request.args.get("verdict") or None
-    review = True if request.args.get("review") == "1" else None
-    jobs = [_with_reason(j) for j in get_recent_jobs(limit=300, verdict=verdict, review=review)]
-    return render_template_string(
-        DASHBOARD_PAGE,
-        stats=get_stats(),
-        jobs=jobs,
-        verdict=verdict,
-        review=review,
-        dry_run=Config.DRY_RUN,
-    )
-
-
-def _with_reason(job):
-    report = json.loads(job["report"]) if job.get("report") else {}
-    job["reason"] = report.get("reason", "")
-    return job
 
 
 def _within_media(path):
@@ -244,56 +86,69 @@ def process():
     return jsonify({"status": "queued", "job_id": job_id})
 
 
-@app.route("/bulk", methods=["POST"])
-def bulk_scan():
-    """Trigger a bulk scan of a directory for existing subtitles."""
-    payload = request.get_json(silent=True)
-    if not payload:
-        return jsonify({"error": "no payload"}), 400
+class ScanError(Exception):
+    """A scan request that can't be started; the message is shown to the user."""
 
-    directory = payload.get("directory", Config.MEDIA_PATH)
-    sub_filter = payload.get("filter", "all")  # all, regular, forced, hi
 
-    requeue = bool(payload.get("requeue", False))
-
+def queue_scan(directory, sub_filter="all", requeue=False):
+    """Queue every subtitle under ``directory`` (inside MEDIA_PATH) for checking."""
     if not _within_media(directory):
-        return jsonify({"error": f"directory is outside {Config.MEDIA_PATH}"}), 400
+        raise ScanError(f"{directory} is outside the media library ({Config.MEDIA_PATH})")
     if not os.path.isdir(directory):
-        return jsonify({"error": f"Directory not found: {directory}"}), 400
+        raise ScanError(f"Folder not found: {directory}")
 
     count = 0
     for root, _, files in os.walk(directory):
         for f in files:
             if not f.endswith(".srt"):
                 continue
-
-            subtitle_path = os.path.join(root, f)
-
+            lower = f.lower()
+            is_forced = ".forced." in lower
+            is_hi = ".hi." in lower or ".sdh." in lower
             if (
-                sub_filter == "forced"
-                and ".forced." not in f.lower()
-                or sub_filter == "regular"
-                and (".forced." in f.lower() or ".hi." in f.lower() or ".sdh." in f.lower())
-                or sub_filter == "hi"
-                and ".hi." not in f.lower()
-                and ".sdh." not in f.lower()
+                (sub_filter == "forced" and not is_forced)
+                or (sub_filter == "regular" and (is_forced or is_hi))
+                or (sub_filter == "hi" and not is_hi)
             ):
                 continue
 
+            subtitle_path = os.path.join(root, f)
             media_path = _find_media_for_subtitle(subtitle_path)
             if not media_path:
                 continue
-
             existing = get_job_by_subtitle(subtitle_path)
             if existing and existing["status"] == JobStatus.COMPLETED and not requeue:
                 continue
+            if existing and existing["status"] not in (JobStatus.COMPLETED, JobStatus.FAILED):
+                continue  # already queued or being checked
 
-            job_id = str(uuid.uuid4())[:8]
-            language = _extract_language(f)
-            create_job(job_id, subtitle_path, media_path, language, source="bulk")
+            create_job(
+                str(uuid.uuid4())[:8],
+                subtitle_path,
+                media_path,
+                _extract_language(f),
+                source="bulk",
+            )
             count += 1
 
-    log.info("Bulk scan queued %d subtitles from %s (filter=%s)", count, directory, sub_filter)
+    log.info("Scan queued %d subtitles from %s (filter=%s)", count, directory, sub_filter)
+    return count
+
+
+@app.route("/bulk", methods=["POST"])
+def bulk_scan():
+    """Queue a scan of a directory for existing subtitles (API)."""
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({"error": "no payload"}), 400
+    try:
+        count = queue_scan(
+            payload.get("directory", Config.MEDIA_PATH),
+            payload.get("filter", "all"),
+            requeue=bool(payload.get("requeue", False)),
+        )
+    except ScanError as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify({"status": "queued", "count": count})
 
 
@@ -339,6 +194,11 @@ def _extract_language(filename):
         if len(part) == 2 or len(part) == 3:
             return part
     return ""
+
+
+from .ui import ui  # noqa: E402 - the blueprint imports queue_scan from this module
+
+app.register_blueprint(ui)
 
 
 def create_app():

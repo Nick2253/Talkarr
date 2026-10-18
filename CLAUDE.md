@@ -80,34 +80,47 @@ makes reruns cheap).
 ## Architecture (current code)
 
 ```
-Bazarr post-processing hook ──POST /process──▶ jobs table (SQLite) ◀── POST /bulk (library scan)
-                                                   │
-                                     worker thread (5 s poll)
-                                                   ▼
-            classify ─▶ clean ─▶ sync (ffsubsync; forced subs skipped) ─▶ verify forced ─▶ validate
-            (DRY_RUN: clean/sync are computed, never written; forced verdicts are report-only)
+Bazarr hook ──POST /process──▶ jobs (SQLite) ◀── POST /bulk, or "Start scan" in the UI
+                                    │
+                         worker thread (5 s poll)
+                                    ▼
+   classify ─▶ analyse (never writes): cleaning trial, ffsubsync trial, forced verification
+          ─▶ proposal: fixes with a tier (safe / confident / uncertain) + file fingerprint
+          ─▶ mode decides what is applied now: Manual none · Safe Auto safe · Full Auto safe+confident
+                                    ▼
+   web UI (Review / Library / Activity / Settings): apply, adjust, dismiss, restore, re-check
 ```
+
+Every applied fix backs up the original first (`BACKUP_DIR/<job>/<time>/`), and every
+change can be restored from the UI. Applying refuses if the subtitle changed on disk
+since it was checked. The mode is the only setting changed in the UI (stored in the
+`settings` table); everything else is environment (compose), shown read-only.
 
 | Module | Role |
 |--------|------|
-| `app.py` | Flask app: dashboard (verdict filters, DRY RUN banner), `/process`, `/bulk` (`directory`, `filter`, `requeue`), `/jobs` (`verdict`, `review`), `/jobs/<id>`, `/stats`, `/health`; paths confined to `MEDIA_PATH` |
+| `app.py` | Flask app + machine API: `/process` (Bazarr), `/bulk`, `/jobs`, `/jobs/<id>` (JSON), `/stats`, `/health`; `queue_scan`; paths confined to `MEDIA_PATH` |
+| `ui.py` | Web UI blueprint: pages, form actions, same-origin check on POSTs, plain-language reasons |
+| `templates/`, `static/` | Jinja templates; `talkarr.css` (design tokens, see `.interface-design/system.md`), `talkarr.js` (progressive enhancement: cue ribbon, adjust preview, two-click confirms), bundled fonts |
+| `settings.py` | Modes (`manual`, `safe_auto`, `full_auto`), the read-only configuration list |
+| `fixes.py` | Building proposals, tiers, auto-apply policy, applying with backups, reverting |
+| `review.py` | Apply / dismiss / revert / re-check (shared by the UI and the automatic modes) |
+| `worker.py` | Job loop: analyse → propose → auto-apply per mode |
 | `config.py` | Env-var config (`Config` class attributes) |
-| `db.py` | SQLite jobs table, `JobStatus`, `SubType` |
-| `classifier.py` | forced / HI / regular from the filename (Bazarr's language placeholders never carry `:forced`) |
-| `cleaner.py` | BOM, encoding (ftfy mojibake repair, cp1252 preferred on ties), ad/credit stripping with a 20 % removal guard |
-| `sync.py` | ffsubsync wrapper; parses score/offset/framerate scale factor |
-| `validator.py` | cue-density/duration/gap checks, mislabel detection |
-| `fileio.py` | atomic, metadata-preserving writes |
-| `paths.py` | `PATH_MAPPING` translation (whole path segments) |
-| `notify.py` | Discord webhook |
-| `worker.py` | background job loop |
+| `db.py` | SQLite: jobs (verdict, review, report, proposal, outcome, backup), settings |
+| `classifier.py` | forced / HI / regular from the filename |
+| `cleaner.py` | BOM, encoding (ftfy, cp1252 preferred on ties), ad/credit stripping (20 % guard); `write=False` for trials |
+| `sync.py` | ffsubsync wrapper (`run_ffsubsync` into any output path; `sync_subtitle` in place) |
+| `validator.py` | Cue-density/duration/gap checks |
+| `fileio.py` | Atomic, metadata-preserving writes |
+| `media.py` | Subtitle → video pairing; English forced subtitle names; full-subtitle sibling |
+| `forced/` | Forced verification: `subtitles`, `anchors` + `fit` (text path), `audio` (timeline path), `verify` (verdicts), `decide` (combine), `sources` (cached evidence), `service` (one file end to end, incl. ribbon data) |
+| `eval/` | Harness: `sweep`, `perturb`, `audio` (`--regions DIR` replays cached analyses offline) |
+| `ml/` | The `talkarr-ml` service (Silero VAD + VoxLingua107, CPU), its own image |
 
-| `media.py` | subtitle → video pairing |
-| `forced/` | forced-sub verification: `subtitles` (cue model), `anchors` + `fit` (text path), `audio` (timeline path), `verify` (verdicts), `decide` (combine), `sources` (cached evidence), `service` (one file end to end) |
-| `eval/` | harness: `sweep`, `perturb`, reference sync cache (`python -m talkarr.eval`) |
-
-Planned (see PLAN.md): audio anchors (`talkarr-ml` service for VAD/LID in seastone on Steel, whisper
-transcription, LLM translation); wiring verdicts into the service.
+To look at the UI locally: seed a scratch database and media folder, run the Flask app
+with `MEDIA_PATH`/`DATABASE_PATH` pointing at them, and screenshot with Playwright's
+headless Chromium (the Freshell browser can't reach this container). Flask caches
+templates: restart the server after editing them.
 
 ## Bazarr integration (Phase 5, not configured yet)
 
@@ -120,22 +133,23 @@ must be disabled.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BAZARR_URL` / `BAZARR_API_KEY` | `http://bazarr:6767` / – | Bazarr API (Phase 5) |
-| `RADARR_URL` / `RADARR_API_KEY` | `http://radarr:7878` / – | Radarr API (unused) |
-| `SONARR_URL` / `SONARR_API_KEY` | `http://sonarr:8989` / – | Sonarr API (unused) |
-| `WHISPER_URL` / `WHISPER_MODEL` | – / `whisper-large-v3-turbo` | OpenAI-compatible transcription API |
-| `TALKARR_WEBHOOK_SECRET` | – | Optional Bearer token for `/process` |
-| `DISCORD_WEBHOOK_URL` | – | Discord notifications |
-| `DATABASE_PATH` | `/data/talkarr.db` | SQLite database |
-| `BASE_URL` | `http://talkarr:9494` | External URL (unused) |
-| `MEDIA_PATH` | `/media` | Media root for bulk scans |
-| `SYNC_ENABLED` / `CLEAN_ENABLED` | `true` | Enable ffsubsync / cleaning |
-| `SYNC_SCORE_THRESHOLD` | `0.4` | Unused (pass threshold is hard-coded; see Appendix A V1) |
+| `MEDIA_PATH` | `/media` | Media root; Talkarr only reads and changes files inside it |
 | `PATH_MAPPING` | – | e.g. `/data:/media`; `|`-separated pairs |
-| `DRY_RUN` | `true` | Report only: record what would change, never write the library (only `false` turns it off) |
-| `FORCED_VERIFY_ENABLED` | `true` | Verify forced subs (text + audio paths) and record a verdict |
-| `TALKARR_ML_URL` | – | talkarr-ml base URL (seastone: `http://talkarr-ml:8000`); empty disables the audio path |
+| `TALKARR_MODE` | `manual` | Mode at first start: `manual`, `safe_auto`, `full_auto` (the Settings page overrides it) |
+| `MISLABELLED_ACTION` | `rename_or_remove` | Full subtitle saved as forced: `remove`, `rename_or_remove`, `flag` |
+| `BACKUP_DIR` | `/data/backups` | Originals are copied here before any change |
+| `SYNC_MIN_OFFSET` | `0.15` | Smallest ffsubsync correction worth proposing (s) |
+| `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync confidence at which a sync counts as confident (Full Auto) |
+| `CLEAN_ENABLED` / `SYNC_ENABLED` / `FORCED_VERIFY_ENABLED` | `true` | Which checks run |
+| `TALKARR_ML_URL` | – | talkarr-ml (seastone: `http://talkarr-ml:8000`); empty disables the audio check |
 | `CACHE_DIR` | `/data/cache` | Synced references, audio analyses, trial-sync scratch |
+| `DATABASE_PATH` | `/data/talkarr.db` | SQLite database |
+| `TALKARR_WEBHOOK_SECRET` | – | When set, `/process` and `/bulk` need `Authorization: Bearer <secret>` |
+| `TALKARR_SECRET_KEY` | random | Signs the flash-message cookie |
+| `BAZARR_URL` / `BAZARR_API_KEY` | `http://bazarr:6767` / – | Bazarr API (Phase 5) |
+| `DISCORD_WEBHOOK_URL` | – | Discord notifications |
+| `WHISPER_URL` / `WHISPER_MODEL` | – / `whisper-large-v3-turbo` | Transcription API (Phase 3b) |
+| `RADARR_*`, `SONARR_*`, `BASE_URL`, `SYNC_SCORE_THRESHOLD` | | Unused |
 
 ## Related context
 

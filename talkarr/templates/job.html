@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ title }} · Talkarr{% endblock %}
+{% block content %}
+<div class="job-head">
+  <span class="eyebrow">{{ {'forced': 'Forced subtitle', 'hi': 'Hearing-impaired subtitle', 'regular': 'Subtitle'}.get(job.sub_type, 'Subtitle') }} · checked {{ job.updated_at | ago }}</span>
+  <h1>{{ title }}</h1>
+  <span class="file" title="{{ job.subtitle_path }}">{{ job.relpath }}</span>
+  {% if job.verdict or reason %}
+  <div class="verdict-line">
+    {% if job.verdict %}<span class="verdict verdict-{{ job.verdict }}">{{ verdict_names.get(job.verdict, job.verdict) }}</span>{% endif %}
+    {% if job.review %}<span class="review-flag">Needs a look</span>{% endif %}
+    <span>{{ reason }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid-detail">
+  <div class="stack">
+    <div class="panel p-fixes">
+      <div class="panel-head"><h2>Proposed fixes</h2><span>{{ outcome_names.get(job.outcome, job.outcome or '') }}</span></div>
+      {% if fixes %}
+      <form method="post" action="{{ url_for('ui.apply_action', job_id=job.id) }}" id="fix-form">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <ul class="fix-list">
+          {% for f in fixes %}
+          <li class="fix-item">
+            <label>
+              <input type="checkbox" name="fix" value="{{ loop.index0 }}" {% if f.state == 'proposed' %}checked{% else %}disabled{% endif %}>
+              <span class="fix-line {{ f.state }}"><span class="tier tier-{{ f.tier }}"></span>{{ f.summary }}</span>
+            </label>
+            <small>{{ tier_help[f.tier] }}{% if f.params.get('adjusted') %} Adjusted by hand.{% endif %}{% if f.error %} <span class="error">{{ f.error }}</span>{% endif %}</small>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if proposed_count %}
+        <div class="acts" style="justify-content:flex-start;margin-top:14px">
+          <button class="btn-apply" type="submit"{{ m.confirm_attrs(fixes) }}>Apply selected</button>
+          <button class="btn-ghost" type="submit" formaction="{{ url_for('ui.dismiss_action', job_id=job.id) }}">Dismiss selected</button>
+        </div>
+        {% endif %}
+      </form>
+      {% else %}
+      <p class="muted" style="margin-top:12px">{{ no_fix_text }}</p>
+      {% endif %}
+    </div>
+
+    {% if ribbon %}
+    <div class="panel p-ribbon">
+      <div class="panel-head"><h2>Cue ribbon</h2><span>{{ ribbon.runtime | tc_short }} runtime · {{ ribbon.cues|length }} cues</span></div>
+      <div class="ribbon" id="ribbon" aria-label="Where each cue sits now and after the fix, against foreign speech in the audio"></div>
+      <div class="ribbon-key">
+        <span><i style="background:var(--slate-3)"></i>Now</span>
+        <span><i style="background:var(--subtitle)"></i>After the fix, on foreign speech</span>
+        <span><i style="background:var(--tally)"></i>After the fix, off speech</span>
+        {% if ribbon.speech %}<span><i style="background:var(--speech)"></i>Foreign speech (audio check)</span>{% endif %}
+      </div>
+      {% if cues %}
+      <div class="table-scroll">
+        <table class="cues">
+          <thead><tr><th>#</th><th>Now</th><th>After fix</th><th>Line</th></tr></thead>
+          <tbody>
+            {% for c in cues %}
+            <tr data-start="{{ c.start }}"><td class="tc">{{ c.n }}</td><td class="tc was">{{ c.start | tc }}</td><td class="tc now" data-after>{{ c.start | tc }}</td><td class="say">{{ c.text }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+    {% elif cues %}
+    <div class="panel p-ribbon">
+      <div class="panel-head"><h2>First cues</h2><span>{{ cue_total }} in total</span></div>
+      <div class="table-scroll">
+        <table class="cues">
+          <thead><tr><th>#</th><th>Now</th>{% if adjust %}<th>After fix</th>{% endif %}<th>Line</th></tr></thead>
+          <tbody>
+            {% for c in cues %}
+            <tr data-start="{{ c.start }}"><td class="tc">{{ c.n }}</td><td class="tc was">{{ c.start | tc }}</td>{% if adjust %}<td class="tc now" data-after>{{ c.start | tc }}</td>{% endif %}<td class="say">{{ c.text }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="panel p-evidence">
+      <h2>Evidence</h2>
+      {% if evidence %}
+      <div class="evidence">
+        {% for color, text in evidence %}<div><i style="background:var(--{{ color }})"></i><span>{{ text }}</span></div>{% endfor %}
+      </div>
+      {% else %}
+      <p class="muted" style="margin-top:12px">No checks have run on this subtitle yet.</p>
+      {% endif %}
+      {% if raw %}
+      <details class="raw"><summary>Full report</summary><pre>{{ raw }}</pre></details>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stack">
+    {% if adjust %}
+    <div class="panel p-adjust">
+      <h2>Adjust fix</h2>
+      <form method="post" action="{{ url_for('ui.apply_action', job_id=job.id) }}" class="stack" style="gap:16px;margin-top:16px" id="adjust-form">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="fix" value="{{ adjust.index }}">
+        <div class="field">
+          <label for="scale">Framerate</label>
+          <select id="scale" name="scale">
+            {% for value, label in framerates %}<option value="{{ value }}" {% if (value - adjust.scale)|abs < 0.0001 %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="offset">Offset, seconds</label>
+          <div class="stepper">
+            <button type="button" data-step="-0.1" aria-label="Earlier by 0.1 seconds">−</button>
+            <input id="offset" name="offset" class="tc" value="{{ '%.2f' % adjust.offset }}" inputmode="decimal" autocomplete="off">
+            <button type="button" data-step="0.1" aria-label="Later by 0.1 seconds">+</button>
+          </div>
+        </div>
+        <button class="btn-apply" type="submit">Apply adjusted</button>
+        <p class="muted" style="font-size:12px">Talkarr proposed {{ adjust.proposed_label }}. Changes here redraw the ribbon and the cue table; the original is backed up before anything is written.</p>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="panel p-history">
+      <h2>History</h2>
+      {% if history %}
+      <ul class="history">
+        {% for h in history %}<li><span>{{ h.text }}</span><span class="muted tc">{{ h.at | ago }}</span></li>{% endfor %}
+      </ul>
+      <form method="post" action="{{ url_for('ui.revert_action', job_id=job.id) }}" style="margin-top:14px">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn-quiet" type="submit" data-confirm="Restore the original?">Restore the original</button>
+      </form>
+      {% else %}
+      <p class="muted" style="margin-top:12px">Nothing has been changed. Originals are backed up before any fix is applied.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('ui.recheck_action', job_id=job.id) }}" style="margin-top:14px">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn-ghost" type="submit">Check again</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% if ribbon or adjust %}
+<script type="application/json" id="cue-data">{{ cue_data | tojson }}</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Library · Talkarr{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Library</h1>
+  <p>Every subtitle Talkarr has checked. Scan a folder to check subtitles you already have; new ones from Bazarr are checked as they arrive.</p>
+</div>
+
+<div class="grid-detail" style="margin-bottom:32px">
+  <div class="panel">
+    <h2>Scan for subtitles</h2>
+    <form method="post" action="{{ url_for('ui.scan_action') }}" class="filters" style="margin-top:14px;padding:0">
+      <div class="field">
+        <label for="scan-dir">Folder</label>
+        <select id="scan-dir" name="directory">
+          {% for path, label in scan_dirs %}<option value="{{ path }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="scan-filter">Subtitles</label>
+        <select id="scan-filter" name="filter">
+          <option value="forced">Forced only</option>
+          <option value="all">All</option>
+          <option value="regular">Regular only</option>
+          <option value="hi">Hearing-impaired only</option>
+        </select>
+      </div>
+      <label class="label" style="display:flex;gap:8px;align-items:center;min-height:38px"><input type="checkbox" name="requeue" value="1"> Re-check ones already done</label>
+      <button class="btn-apply" type="submit">Start scan</button>
+    </form>
+    <p class="muted" style="font-size:12px;margin-top:10px">Forced subtitles take a few minutes each the first time (the audio is analysed once and remembered).</p>
+  </div>
+  <div class="panel progress" id="progress" data-busy="{{ busy }}">
+    <div class="panel-head"><h2>Queue</h2><span class="tc">{{ done }} / {{ done + busy }}</span></div>
+    <div class="track"><span style="width: {{ ((done / (done + busy)) * 100) if (done + busy) else 0 }}%"></span></div>
+    <p>{% if busy %}{{ busy }} subtitle{{ '' if busy == 1 else 's' }} queued or being checked. This page refreshes on its own.{% else %}Idle. Nothing is queued.{% endif %}</p>
+  </div>
+</div>
+
+<section aria-labelledby="all-h">
+  <div class="section-head"><h2 id="all-h">Checked subtitles</h2><span class="meta">{{ jobs|length }}{% if jobs|length == limit %}+{% endif %} shown</span></div>
+  <form method="get" class="filters" style="padding-top:16px">
+    <div class="field"><label for="q">Search</label><input id="q" type="search" name="q" value="{{ q or '' }}" placeholder="Film or file name"></div>
+    <div class="field"><label for="kind">Type</label>
+      <select id="kind" name="kind">
+        <option value="">Any</option>
+        {% for k, label in [('forced','Forced'),('regular','Regular'),('hi','Hearing-impaired')] %}<option value="{{ k }}" {% if kind == k %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="verdict">Forced verdict</label>
+      <select id="verdict" name="verdict">
+        <option value="">Any</option>
+        {% for k, label in verdict_labels %}<option value="{{ k }}" {% if verdict == k %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="outcome">Fixes</label>
+      <select id="outcome" name="outcome">
+        <option value="">Any</option>
+        {% for k, label in outcome_names.items() %}<option value="{{ k }}" {% if outcome == k %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <button class="btn-quiet" type="submit">Filter</button>
+    {% if q or kind or verdict or outcome %}<a class="button btn-ghost" href="{{ url_for('ui.library_page') }}">Clear</a>{% endif %}
+  </form>
+  {% if jobs %}
+  <div class="table-scroll">
+    <table class="jobs">
+      <thead><tr><th>Subtitle</th><th>Type</th><th>Verdict</th><th>Fixes</th><th>Checked</th></tr></thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td><a href="{{ url_for('ui.job_page', job_id=j.id) }}"><strong>{{ j.title }}</strong></a><div class="muted tc" style="font-size:12px">{{ j.file }}</div></td>
+          <td>{{ m.kind_chip(j.sub_type) }}</td>
+          <td>{% if j.verdict %}<span class="verdict verdict-{{ j.verdict }}">{{ verdict_names.get(j.verdict, j.verdict) }}</span>{% elif j.status != 'completed' %}<span class="muted">{{ j.status }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+          <td>{% if j.fixes %}{{ m.fix_lines(j.fixes) }}{% elif j.review or j.verdict == 'mismatch' %}<span class="review-flag">Needs a look</span>{% else %}<span class="muted">{{ outcome_names.get(j.outcome, '–') }}</span>{% endif %}</td>
+          <td class="tc muted">{{ j.updated_at | ago }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><strong>No subtitles match.</strong><span>{% if q or kind or verdict or outcome %}Try clearing the filters.{% else %}Start a scan above to check the subtitles you already have.{% endif %}</span></div>
+  {% endif %}
+</section>
+{% endblock %}

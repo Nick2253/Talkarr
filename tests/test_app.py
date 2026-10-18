@@ -19,22 +19,6 @@ def test_health(client):
     assert client.get("/health").get_json() == {"status": "ok"}
 
 
-def test_dashboard_empty(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    assert b"No jobs yet" in r.data
-
-
-def test_dashboard_lists_jobs_and_escapes_paths(client):
-    db.create_job("j1", "/m/<script>alert(1)</script>.srt", "/m/a.mkv", "en")
-    db.update_job_validation("j1", 0.55, "x")
-    db.update_job_sync("j1", -1.5, 0.8)
-    r = client.get("/")
-    assert b"<script>alert(1)</script>" not in r.data
-    assert b"&lt;script&gt;" in r.data
-    assert b"55%" in r.data and b"-1.50s" in r.data
-
-
 def test_jobs_and_stats(client):
     db.create_job("j1", "/m/a.srt", "/m/a.mkv", "en")
     assert [j["id"] for j in client.get("/jobs").get_json()] == ["j1"]
@@ -221,24 +205,6 @@ def test_bulk_requeue(client, library):
         db.update_job_status(job["id"], JobStatus.COMPLETED)
     r = client.post("/bulk", json={"directory": str(library), "requeue": True})
     assert r.get_json()["count"] == 5
-
-
-def test_dashboard_dry_run_banner_and_verdicts(client, monkeypatch):
-    monkeypatch.setattr(Config, "DRY_RUN", True)
-    db.create_job("a", "/m/A.en.forced.srt", "/m/A.mkv", "en")
-    db.update_job_report("a", "retimed", True, {"reason": "26 lines line up after offset"})
-    db.create_job("b", "/m/B.en.forced.srt", "/m/B.mkv", "en")
-    db.update_job_report("b", "in_sync", False, {"reason": "fine"})
-
-    page = client.get("/").data.decode()
-    assert "DRY RUN" in page
-    assert "REVIEW" in page and "26 lines line up" in page
-
-    page = client.get("/?review=1").data.decode()
-    assert "A.en.forced.srt" in page and "B.en.forced.srt" not in page
-    page = client.get("/?verdict=in_sync").data.decode()
-    assert "B.en.forced.srt" in page and "A.en.forced.srt" not in page
-    assert "match this filter" in client.get("/?verdict=mismatch").data.decode()
 
 
 def test_jobs_filters_and_detail(client):
