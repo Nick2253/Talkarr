@@ -157,11 +157,19 @@ def run(path, mods, sub_type=SubType.REGULAR, language="", write=False):
         if mod_id == "fix_uppercase" and not uppercase:
             continue
         func = _FUNCS[mod_id]
+        context = {"language": language, "uppercase": uppercase, **args}
+        if mod_id == "remove_HI":
+            context.update(_hi_style(cues))
         kept, changed = [], 0
         for cue in cues:
-            text = func(cue.text, language=language, uppercase=uppercase, **args)
+            text = func(cue.text, **context)
             if text != cue.text:
                 text = _tidy(text)
+                if (
+                    mod_id != "common"
+                    and _SPACES_RE.sub(" ", text) == _SPACES_RE.sub(" ", cue.text).strip()
+                ):
+                    text = cue.text  # only whitespace moved: that's common fixes' job
             if text != cue.text:
                 changed += 1
             if text:
@@ -207,24 +215,69 @@ def _language(language, path):
 
 
 def _tidy(text):
-    lines = [line.strip() for line in text.split("\n")]
+    """Trim lines, drop ones left with nothing but tags or a dash, and repair tags."""
+    lines = [line.strip() for line in _balance_tags(text).split("\n")]
     lines = [line for line in lines if _TAG_RE.sub("", line).strip(" -")]
+    # Spaces left just inside tags at a line's ends: "<i>I was... </i>" -> "<i>I was...</i>".
+    lines = [re.sub(r"^((?:<(?!/)[^>]*>)+)\s+", r"\1", line) for line in lines]
+    lines = [re.sub(r"\s+((?:</\w+>)+)$", r"\1", line) for line in lines]
     return "\n".join(lines)
 
 
-# --- the modifications ---------------------------------------------------------------
-
+_SPACES_RE = re.compile(r"\s+")
 _TAG_RE = re.compile(r"<[^>]*>|\{\\[^}]*\}")
-_ASS_TAG_RE = re.compile(r"\{\\[^}]*\}")
+_HTML_TAG_RE = re.compile(r"<(/?)(i|b|u|font)\b[^>]*>", re.IGNORECASE)
+
+
+def _balance_tags(text):
+    """Drop closing tags with no opening one and close what was left open (a removed
+    line can take half of an ``<i>...</i>`` pair with it)."""
+    out, stack, pos = [], [], 0
+    for m in _HTML_TAG_RE.finditer(text):
+        out.append(text[pos : m.start()])
+        pos = m.end()
+        name = m.group(2).lower()
+        if not m.group(1):
+            stack.append(name)
+            out.append(m.group(0))
+        elif name in stack:
+            while stack:  # close anything opened inside it first
+                inner = stack.pop()
+                out.append(m.group(0) if inner == name else f"</{inner}>")
+                if inner == name:
+                    break
+    out.append(text[pos:])
+    out.extend(f"</{name}>" for name in reversed(stack))
+    return "".join(out)
+
+
+def _outside_tags(func, line):
+    """Apply ``func`` to the text of ``line`` between tags, leaving the tags alone."""
+    parts = re.split(f"({_TAG_RE.pattern})", line)
+    return "".join(p if i % 2 else func(p) for i, p in enumerate(parts))
+
+
+def _plain(line):
+    return _TAG_RE.sub("", line).strip()
+
+
+# --- the modifications ---------------------------------------------------------------
 
 
 def _remove_tags(text, **_):
     return _TAG_RE.sub("", text)
 
 
+_KEEP_SYMBOLS = "©®™"  # emoji to the emoji package, but ordinary text in subtitles
+
+
 def _emoji(text, **_):
-    text = emoji_lib.replace_emoji(text, "")
-    return "\n".join(re.sub(r" {2,}", " ", line).strip() for line in text.split("\n"))
+    marked = emoji_lib.replace_emoji(
+        text, replace=lambda chars, _data: chars if chars in _KEEP_SYMBOLS else "\0"
+    )
+    if marked == text:
+        return text
+    return "\n".join(re.sub(r" *\0+ *", " ", line).strip() for line in marked.split("\n"))
 
 
 # OCR: "l" read for "I" (and "|" for "I"), "0" read for "o" inside words.
@@ -243,22 +296,34 @@ _OCR_L_WORDS = {
     "ls": "Is",
     "lsn't": "Isn't",
 }
-_WORD_RE = re.compile(r"(?<![\w'])[\w|][\w'|]*")
+# Not "l-l-let's" or "l-o-v-e": a stutter or spelling-out, not "I".
+_WORD_RE = re.compile(r"(?<![\w'|-])[\w|][\w'|]*+(?!-[a-z])")
 _ZERO_IN_WORD_RE = re.compile(r"(?<=[a-z])0(?=[a-z])|(?<=\b[A-Z])0(?=[a-z])")
 _L_BEFORE_CONSONANT_RE = re.compile(r"^l(?=[bcdfghjkmnpqrstvwxz][a-z])")
+# A lone "|" is "I" only where "I" reads on ("| can't", "|'m", "|-I"), not between
+# capitalised words, where it is a separator ("Idiot | Moron").
+_LONE_PIPE_RE = re.compile(r"(?<![^\s\"'(-])\|(?=\s+[a-z]|['’-]|$)")
 
 
 def _ocr_fixes(text, **_):
     def word(m):
-        w = m.group(0).replace("|", "I")
+        w = m.group(0)
+        if w == "|":
+            return w
+        if w[0] == "|" and (w[1].islower() or w[1] == "'"):
+            w = "I" + w[1:]  # "|t's"; not "that|" or "|If"
         if w in _OCR_L_WORDS:
             return _OCR_L_WORDS[w]
         if w.lower() not in ("lb", "lbs"):
             w = _L_BEFORE_CONSONANT_RE.sub("I", w)  # "lmpossible" -> "Impossible"
         return w
 
-    text = _WORD_RE.sub(word, text)
-    return _ZERO_IN_WORD_RE.sub("o", text)
+    def fix(segment):
+        segment = _LONE_PIPE_RE.sub("I", segment)
+        segment = _WORD_RE.sub(word, segment)
+        return _ZERO_IN_WORD_RE.sub("o", segment)
+
+    return "\n".join(_outside_tags(fix, line) for line in text.split("\n"))
 
 
 _SOUND_WORDS = (
@@ -282,39 +347,99 @@ _SOUND_WORDS = (
     "GUNSHOT",
     "SIREN",
 )
-_MUSIC = "♪♫#*¶"
+_MUSIC = "♪♫#¶"  # not "*": "Oh, boy.***" is dialogue
 _FULL_BRACKET_RE = re.compile(r"^-?\s*(\[[^\]]{3,}\]|\([^)]{3,}\))\s*:?$")
 _INLINE_BRACKET_RE = re.compile(r"\s*\[[^\]]{3,}\]\s*:?")
 _CAPS_SPEAKER_RE = re.compile(r"^(-\s*)?[A-Z][A-Z0-9 .'&#-]{2,}(?: \([^)]*\))?:\s+(?=\S)(?!\d)")
-_NAME_SPEAKER_RE = re.compile(r"^(-\s*)?[A-Z][a-z]{2,15}:\s+(?=[A-Z\"'¿¡])")
+_NAME_SPEAKER_RE = re.compile(r"^(-\s*)?([A-Z][a-z]{2,15}):\s+(?=[A-Z\"'¿¡])")
 _CAPS_LINE_RE = re.compile(r"^[A-Z\s&+'.,!-]+$")
 _CAPS_LEAD_RE = re.compile(r"^(-\s*)?[A-Z]{4,}(?:\s+[A-Z]{2,})*\s+(?=[A-Z][a-z])")
 _MAN_RE = re.compile(r"\b(?:WO)?MAN:\s*")
+# A file must show this many cues in a style before the riskier HI rules trust it.
+HI_STYLE_MIN_CUES = 5
 
 
-def _remove_hi(text, uppercase=False, **_):
+def _hi_style(cues):
+    """What this subtitle's HI text looks like, so rules that would misfire on ordinary
+    dialogue ("Repeat: Abort!", "NCIS Marseille is...") only run on files written that way.
+    """
+    names, labelled, hi_cues = set(), 0, 0
+    for cue in cues:
+        lines = [_plain(line) for line in cue.text.split("\n")]
+        found = [m.group(2) for line in lines if (m := _NAME_SPEAKER_RE.match(line))]
+        if found:
+            labelled += 1
+            names.update(found)
+        if any(
+            _FULL_BRACKET_RE.match(line)
+            or _INLINE_BRACKET_RE.search(line)
+            or _CAPS_SPEAKER_RE.match(line)
+            or _is_sound_line(line)
+            for line in lines
+        ):
+            hi_cues += 1
+    return {
+        "speaker_names": labelled >= HI_STYLE_MIN_CUES and len(names) >= 2,
+        "hi_styled": hi_cues >= HI_STYLE_MIN_CUES,
+    }
+
+
+def _is_sound_line(plain):
+    """``CHRIS LAUGHS``, ``DOOR SLAMS``: a short all-caps line naming a sound."""
+    words = plain.split()
+    return (
+        bool(_CAPS_LINE_RE.match(plain))
+        and 0 < len(words) <= 4
+        and any(w.startswith(s) for w in words for s in _SOUND_WORDS)
+    )
+
+
+def _is_music(plain):
+    return bool(plain) and (plain[0] in _MUSIC or plain[-1] in _MUSIC)
+
+
+def _remove_hi(text, uppercase=False, speaker_names=False, hi_styled=False, **_):
     lines = text.split("\n")
-    plain = [_ASS_TAG_RE.sub("", _TAG_RE.sub("", line)).strip() for line in lines]
+    plain = [_plain(line) for line in lines]
     if all(_FULL_BRACKET_RE.match(p) or not p for p in plain):
         return ""
+
+    # Lyrics: a line opening with a music note runs on until the next speaker's dash;
+    # one closing with a note runs back to the previous one.
+    music = [False] * len(lines)
+    for i, p in enumerate(plain):
+        if p and p[0] in _MUSIC:
+            j = i
+            while j < len(lines) and (j == i or not plain[j].startswith("-")):
+                music[j] = True
+                j += 1
+        if p and p[-1] in _MUSIC:
+            j = i
+            while j >= 0:
+                music[j] = True
+                if plain[j].startswith("-"):
+                    break
+                j -= 1
+
     out = []
-    for raw, bare in zip(lines, plain, strict=True):
-        if _FULL_BRACKET_RE.match(bare):
+    for i, raw in enumerate(lines):
+        bare = plain[i]
+        if music[i] or _FULL_BRACKET_RE.match(bare):
             continue
-        if bare and (bare[0] in _MUSIC or bare[-1] in _MUSIC):
-            continue  # lyrics and music cues: "♪ Fly me to the moon ♪"
         line = _INLINE_BRACKET_RE.sub(" ", raw).strip()
         if not uppercase:
-            if _CAPS_LINE_RE.match(bare) and any(w in bare for w in _SOUND_WORDS):
+            if _is_sound_line(bare):
                 continue
-            line = _CAPS_LEAD_RE.sub(lambda m: m.group(1) or "", line)
+            if hi_styled:
+                line = _CAPS_LEAD_RE.sub(lambda m: m.group(1) or "", line)
         line = _CAPS_SPEAKER_RE.sub(lambda m: m.group(1) or "", line)
-        line = _NAME_SPEAKER_RE.sub(lambda m: m.group(1) or "", line)
+        if speaker_names:
+            line = _NAME_SPEAKER_RE.sub(lambda m: m.group(1) or "", line)
         line = _MAN_RE.sub("", line)
         out.append(line)
-    out = [line for line in out if line.strip(" -")]
+    out = [line for line in out if _plain(line).strip(" -")]
     if len(out) == 1 and len(lines) > 1:
-        out[0] = re.sub(r"^-\s*", "", out[0])  # one speaker left: no dialogue dash
+        out[0] = re.sub(r"^((?:<[^>]*>)*)-\s*", r"\1", out[0])  # one speaker left: no dash
     return "\n".join(out)
 
 
@@ -345,48 +470,79 @@ _LOWER_I_RE = re.compile(r"\bi\b(?!\.)")
 
 
 def _common(text, language="", **_):
-    lines = []
-    for raw in text.split("\n"):
-        line = raw.strip()
-        if re.fullmatch(r"\W*[-_.:<>~\"']+\W*", line) and not any(c in line for c in _MUSIC):
-            continue
+    def fix(segment, first):
         for pattern, repl in _COMMON_RULES:
-            line = pattern.sub(repl, line)
+            if first or not pattern.pattern.startswith("^"):
+                segment = pattern.sub(repl, segment)
         if language not in ("es", "spa"):  # "¿¡...?!" is correct Spanish
-            line = _DOUBLE_PUNCT_RE.sub(r"\1", line)
-        if not _URL_RE.search(line):
-            line = _NO_SPACE_AFTER_RE.sub(r"\1\2 \3", line)
-        line = _I_IN_WORD_RE.sub(lambda m: m.group(1) + "l" * len(m.group(2)), line)
-        line = _AFTER_DOT_RE.sub(
+            segment = _DOUBLE_PUNCT_RE.sub(r"\1", segment)
+        if not _URL_RE.search(segment):
+            segment = _NO_SPACE_AFTER_RE.sub(r"\1\2 \3", segment)
+        segment = _I_IN_WORD_RE.sub(lambda m: m.group(1) + "l" * len(m.group(2)), segment)
+        segment = _AFTER_DOT_RE.sub(
             lambda m: (
                 m.group(0)
                 if m.group(1).lower() in _ABBREVIATIONS
                 else f"{m[1]}.{m[2]}{m[3].upper()}"
             ),
-            line,
+            segment,
         )
         if language in ENGLISH:
-            line = _LOWER_I_RE.sub("I", line)
-        lines.append(line.strip())
+            segment = _LOWER_I_RE.sub("I", segment)
+        return segment
+
+    lines = []
+    for raw in text.split("\n"):
+        bare = _plain(raw)
+        if re.fullmatch(r"\W*[-_.:<>~\"']+\W*", bare) and not any(c in bare for c in _MUSIC):
+            continue
+        # Line-start rules apply to the first text after any opening tags ("<i>-Foul!").
+        parts = re.split(f"({_TAG_RE.pattern})", raw.strip())
+        first = next((i for i, p in enumerate(parts) if i % 2 == 0 and p.strip()), None)
+        lines.append(
+            "".join(
+                p if i % 2 else fix(p.lstrip() if i == first else p, i == first)
+                for i, p in enumerate(parts)
+            ).strip()
+        )
     return "\n".join(lines)
 
 
-# Sentence ends, music notes and dialogue dashes; not hyphens inside words ("well-known").
-_SENTENCE_SPLIT_RE = re.compile(r"(\s*[.!?♪]\s*|^\s*-\s*|\s+-\s+)")
-
-
 def _fix_uppercase(text, language="", **_):
-    def sentence(part):
-        stripped = part.lstrip()
-        lead = part[: len(part) - len(stripped)]
-        return lead + stripped[:1].upper() + stripped[1:].lower()
-
-    text = "\n".join(
-        "".join(sentence(p) for p in _SENTENCE_SPLIT_RE.split(line)) for line in text.split("\n")
-    )
+    """Sentence case, outside tags: a capital after ``.!?♪``, a dialogue dash or a
+    speaker label, lower case everywhere else."""
+    out, capital, in_tag, line_start = [], True, None, True
+    for i, ch in enumerate(text):
+        if in_tag:
+            out.append(ch)
+            if ch == in_tag:
+                in_tag = None
+            continue
+        if ch in "<{":
+            in_tag = ">" if ch == "<" else "}"
+            out.append(ch)
+            continue
+        if ch.isalpha():
+            initial = text[i + 1 : i + 2] == "." and not text[i - 1 : i].isalpha()
+            out.append(ch.upper() if capital or initial else ch.lower())  # "George C. Marshall"
+            capital = line_start = False
+            continue
+        out.append(ch)
+        if ch in ".!?♪:":
+            # An ellipsis runs on ("...as equals"); a full stop starts a sentence.
+            capital = ch != "." or "." not in (text[i - 1 : i], text[i + 1 : i + 2])
+        elif ch == "\n":
+            line_start = True
+        elif ch == "-" and line_start:
+            capital = True
+        elif not ch.isspace():
+            capital = capital and ch in "\"'(¿¡"
+    fixed = "".join(out)
     if language in ENGLISH:
-        text = re.sub(r"\bi\b", "I", text)
-    return text
+        fixed = "\n".join(
+            _outside_tags(lambda s: re.sub(r"\bi\b", "I", s), line) for line in fixed.split("\n")
+        )
+    return fixed
 
 
 _RTL_RE = re.compile(r"^([\s.!?:,'-]*)(.+?)(\s*)(-?\s*)$")

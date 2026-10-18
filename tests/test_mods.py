@@ -27,10 +27,15 @@ EN = {"language": "en"}
         ("remove_HI", "- JOHN: Hi there.\n- [laughs] Hey!", "- Hi there.\n- Hey!"),
         ("remove_HI", "♪ Fly me to the moon ♪", ""),
         ("remove_HI", "(sighs)\n- Okay then.", "Okay then."),
-        ("remove_HI", "GASPS Oh my god.", "Oh my god."),
+        ("remove_HI", "<i># Ra-Ra-Rasputin\nLover of the Russian queen</i>", ""),
+        ("remove_HI", "<i>- # But he also... #</i>\n- You need my help?", "You need my help?"),
+        ("remove_HI", "<i>I was... [Coughs]</i>", "<i>I was...</i>"),
+        ("remove_HI", "CHRIS LAUGHS", ""),
+        ("remove_HI", "AS OF NOW, YOU AND I\nARE ATTACHED AT THE CELL PHONE.", None),
         ("remove_HI", "MAN: Get down!", "Get down!"),
-        ("remove_HI", "Sarah: Wait for me.", "Wait for me."),
-        ("remove_HI", "Note: this is it", "Note: this is it"),
+        ("remove_HI", "Repeat: Abort!", None),  # names only in a file labelled that way
+        ("remove_HI", "NCIS Marseille is overdue", None),
+        ("remove_HI", "Note: this is it", None),
         ("remove_HI", "The time is 10:30.", "The time is 10:30."),
         ("common", "Hello ,world", "Hello, world"),
         ("common", "...and then", "and then"),
@@ -46,15 +51,50 @@ EN = {"language": "en"}
         ("common", "''Quote'' don’t", '"Quote" don\'t'),
         ("common", "-Yes", "- Yes"),
         ("common", "Hello  there....", "Hello there..."),
+        ("common", "<i>like I'm supposed to</i>", None),  # tags are left alone
+        ("common", "<i>-Facing creatures\n-Foul!</i>", "<i>- Facing creatures\n- Foul!</i>"),
+        ("emoji", "Blue-Bird™ and  two spaces", None),
+        ("OCR_fixes", "Idiot | Moron | Fool", None),
+        ("OCR_fixes", "now that| say it", None),
+        ("OCR_fixes", "Okay, l-l-let's go, l-o-v-e", None),
+        ("fix_uppercase", "TO THE OLYMPICS...AS EQUALS.", "To the olympics...as equals."),
+        ("OCR_fixes", "|If There Were", None),
+        ("remove_HI", "Oh, boy.***", None),
+        ("common", "-Uh, uh,<i> The Gilded Age.</i>", "- Uh, uh,<i> The Gilded Age.</i>"),
+        ("fix_uppercase", "GEORGE C. MARSHALL, GENERAL.", "George C. Marshall, general."),
+        ("OCR_fixes", "No, | can't do that.", "No, I can't do that."),
+        ("OCR_fixes", "<i>l feel hopeful</i>", "<i>I feel hopeful</i>"),
         ("fix_uppercase", "I DON'T KNOW. WHAT?", "I don't know. What?"),
         ("fix_uppercase", "- WELL-KNOWN MAN.\n- i'm OK.", "- Well-known man.\n- I'm ok."),
+        (
+            "fix_uppercase",
+            "WE GOT SCATTERED\nPRETTY <i>BAD</i>, SIR.",
+            "We got scattered\npretty <i>bad</i>, sir.",
+        ),
+        ("fix_uppercase", "Man:\nCLEAR THE ROAD!", "Man:\nClear the road!"),
         ("color", "Hi", '<font color="#FFFF00">Hi</font>'),
         ("color", '<font color="#FF0000">Hi</font>', '<font color="#FFFF00">Hi</font>'),
     ],
 )
 def test_modification(mod, before, after):
     args = {"name": "yellow"} if mod == "color" else {}
-    assert mods._tidy(mods._FUNCS[mod](before, **EN, **args)) == after
+    assert mods._tidy(mods._FUNCS[mod](before, **EN, **args)) == (
+        before if after is None else after
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [("GASPS Oh my god.", "Oh my god."), ("- Sarah: Wait for me.", "- Wait for me.")],
+)
+def test_hi_rules_for_files_written_in_that_style(before, after):
+    assert mods._remove_hi(before, speaker_names=True, hi_styled=True) == after
+
+
+def test_hi_style_needs_several_cues():
+    labelled = [S.Cue(0, 1, f"{name}: Hello there.") for name in ("Sarah", "Tom") * 3]
+    assert mods._hi_style(labelled) == {"speaker_names": True, "hi_styled": False}
+    assert mods._hi_style(labelled[:4])["speaker_names"] is False
 
 
 @pytest.mark.parametrize(
