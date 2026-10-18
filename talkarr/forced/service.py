@@ -13,7 +13,7 @@ from . import sources
 from . import subtitles as S
 from .audio import fit_timeline, foreign_timeline
 from .decide import combine
-from .verify import verify, verify_audio
+from .verify import MISLABEL_MIN_CUES, verify, verify_audio
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +22,17 @@ def verify_forced(forced_path, video, cache_dir, ml_url=""):
     """Returns ``(Decision, details)`` for the forced subtitle at ``forced_path``."""
     forced = S.load(forced_path)
     details = {"forced_cues": len(forced)}
+
+    # A "forced" subtitle with this many cues is a full subtitle; the count alone
+    # proves it, so skip the expensive evidence (ffsubsync pass, audio analysis).
+    if len(forced) >= MISLABEL_MIN_CUES:
+        decision = combine(verify(forced, None))
+        details["ribbon"] = {
+            "runtime": round(max([c.end for c in forced] + [0.0]) + 60.0, 1),
+            "cues": [[round(c.start, 3), round(c.end, 3)] for c in forced],
+            "speech": [],
+        }
+        return decision, details
 
     text_report = None
     reference_path = find_reference_subtitle(forced_path)

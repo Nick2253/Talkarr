@@ -10,6 +10,7 @@ from talkarr.forced import subtitles as S
 from talkarr.forced.audio import Region
 from talkarr.forced.decide import combine
 from talkarr.forced.verify import Report, Verdict
+from tests.conftest import make_srt
 from tests.test_eval import make_film
 
 
@@ -217,3 +218,20 @@ def test_migration_adds_columns_to_old_database(tmp_path, monkeypatch):
 
     job = db.get_job("old")
     assert job["verdict"] == "in_sync" and json.loads(job["report"]) == {"reason": "ok"}
+
+
+def test_full_subtitle_skips_expensive_evidence(tmp_path, monkeypatch):
+    """205 of the library's "forced" files are full subtitles: decided from the cue
+    count alone, without an ffsubsync pass or an audio analysis."""
+    d = make_film(tmp_path, "Alpha (2001)", 1)
+    forced = next(d.glob("*.en.forced.srt"))
+    forced.write_text(make_srt([f"line {i}" for i in range(250)]))
+
+    def must_not_run(*a, **k):
+        raise AssertionError("expensive evidence gathered for an obvious full subtitle")
+
+    monkeypatch.setattr(sources, "synced_reference", must_not_run)
+    monkeypatch.setattr(sources, "film_regions", must_not_run)
+    decision, details = service.verify_forced(str(forced), "/x.mkv", str(tmp_path), ml_url="x")
+    assert decision.verdict == Verdict.MISLABELLED
+    assert len(details["ribbon"]["cues"]) == 250
