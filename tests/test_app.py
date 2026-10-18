@@ -199,12 +199,23 @@ def test_bulk_rejects_directory_outside_media(client, tmp_path):
     assert r.status_code == 400
 
 
-def test_bulk_requeue(client, library):
+def test_bulk_requeue_reuses_jobs(client, library):
     bulk(client, library)
     for job in db.get_recent_jobs():
         db.update_job_status(job["id"], JobStatus.COMPLETED)
     r = client.post("/bulk", json={"directory": str(library), "requeue": True})
     assert r.get_json()["count"] == 5
+    assert len(db.get_recent_jobs()) == 5  # re-checked in place, no new rows
+    assert {j["status"] for j in db.get_recent_jobs()} == {JobStatus.PENDING}
+
+
+def test_lists_and_counts_show_one_job_per_subtitle(client):
+    db.create_job("old", "/m/a.srt", "", "en")
+    db.update_job_proposal("old", {"fixes": []}, "nothing")
+    db.create_job("new", "/m/a.srt", "", "en")
+    db.update_job_proposal("new", {"fixes": []}, "pending")
+    assert [j["id"] for j in db.get_jobs()] == ["new"]
+    assert db.count_by("outcome") == {"pending": 1}
 
 
 def test_jobs_filters_and_detail(client):

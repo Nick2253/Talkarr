@@ -243,8 +243,16 @@ def update_job_applied(job_id, fixes, outcome, backup):
         db.commit()
 
 
+# Only the most recent job for each subtitle file: re-checks used to add rows, and a
+# subtitle should appear once in every list and count.
+LATEST_ONLY = (
+    "id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY subtitle_path "
+    "ORDER BY created_at DESC, rowid DESC) AS rn FROM jobs) WHERE rn = 1)"
+)
+
+
 def get_jobs(outcome=None, verdict=None, sub_type=None, review=None, search=None, limit=200):
-    clauses, params = [], []
+    clauses, params = [LATEST_ONLY], []
     for column, value in (("outcome", outcome), ("verdict", verdict), ("sub_type", sub_type)):
         if value:
             values = value if isinstance(value, (list, tuple)) else [value]
@@ -268,7 +276,9 @@ def get_jobs(outcome=None, verdict=None, sub_type=None, review=None, search=None
 def count_by(column):
     rows = (
         get_db()
-        .execute(f"SELECT {column} AS k, COUNT(*) AS n FROM jobs GROUP BY {column}")
+        .execute(
+            f"SELECT {column} AS k, COUNT(*) AS n FROM jobs WHERE {LATEST_ONLY} GROUP BY {column}"
+        )
         .fetchall()
     )
     return {r["k"]: r["n"] for r in rows}

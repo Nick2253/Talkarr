@@ -15,6 +15,7 @@ from .db import (
     get_recent_jobs,
     get_stats,
     init_db,
+    update_job_status,
 )
 from .media import find_video_for_subtitle as _find_media_for_subtitle
 from .paths import translate_path
@@ -117,10 +118,14 @@ def queue_scan(directory, sub_filter="all", requeue=False):
             if not media_path:
                 continue
             existing = get_job_by_subtitle(subtitle_path)
-            if existing and existing["status"] == JobStatus.COMPLETED and not requeue:
-                continue
             if existing and existing["status"] not in (JobStatus.COMPLETED, JobStatus.FAILED):
                 continue  # already queued or being checked
+            if existing and existing["status"] == JobStatus.COMPLETED and not requeue:
+                continue
+            if existing:
+                update_job_status(existing["id"], JobStatus.PENDING)  # re-check in place
+                count += 1
+                continue
 
             create_job(
                 str(uuid.uuid4())[:8],
