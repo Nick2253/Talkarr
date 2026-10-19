@@ -7,6 +7,7 @@ from talkarr import db
 from talkarr.config import Config
 from talkarr.forced import service, sources
 from talkarr.forced import subtitles as S
+from talkarr.forced import verify as verify_mod
 from talkarr.forced.audio import Region
 from talkarr.forced.decide import combine
 from talkarr.forced.verify import Report, Verdict
@@ -220,18 +221,105 @@ def test_migration_adds_columns_to_old_database(tmp_path, monkeypatch):
     assert job["verdict"] == "in_sync" and json.loads(job["report"]) == {"reason": "ok"}
 
 
-def test_full_subtitle_skips_expensive_evidence(tmp_path, monkeypatch):
-    """205 of the library's "forced" files are full subtitles: decided from the cue
-    count alone, without an ffsubsync pass or an audio analysis."""
+def long_track(n=250, every=20.0, start=60.0):
+    return [S.Cue(start + i * every, start + i * every + 2.0, f"line {i} here") for i in range(n)]
+
+
+def on(cues, pad=0.2):
+    return [(c.start - pad, c.end + pad) for c in cues]
+
+
+def fit_for(cues, spans):
+    from talkarr.forced.audio import fit_timeline
+
+    return fit_timeline(cues, spans)
+
+
+def test_long_track_on_foreign_speech_is_genuine():
+    """Lion, Slumdog Millionaire: 300-400 cues, but they sit on the Hindi dialogue."""
+    cues = long_track()
+    spans = on(cues)
+    assert verify_mod.judge_long(cues, None, fit_for(cues, spans), spans) is None
+
+
+def test_long_track_off_foreign_speech_is_mislabelled():
+    cues = long_track()
+    spans = on(cues[:20])  # a little foreign speech, most cues elsewhere
+    report = verify_mod.judge_long(cues, None, fit_for(cues, spans), spans)
+    assert report.verdict == Verdict.MISLABELLED and not report.review
+    assert "on foreign speech" in report.reason
+
+
+def test_film_without_foreign_speech():
+    cues = long_track()
+    report = verify_mod.judge_long(cues, None, fit_for(cues, []), [])
+    assert report.verdict == Verdict.MISLABELLED and not report.review
+
+
+def test_long_subset_of_the_full_subtitle_is_genuine():
+    """District 9: 221 cues, all in the 1426-cue full subtitle (a sixth of it)."""
+    cues = long_track()
+    reference = sorted(
+        cues + [S.Cue(c.start + 5, c.end + 5, f"other words {i}") for i, c in enumerate(cues * 3)],
+        key=lambda c: c.start,
+    )
+    assert verify_mod.judge_long(cues, reference) is None
+
+
+def test_long_copy_of_the_full_subtitle():
+    dense = long_track(every=4.0)  # 15 a minute: ordinary dialogue
+    report = verify_mod.judge_long(dense, list(dense))
+    assert report.verdict == Verdict.MISLABELLED and not report.review
+    sparse = long_track(every=20.0)  # 3 a minute: maybe a mostly foreign film's track
+    assert verify_mod.judge_long(sparse, list(sparse)).review
+
+
+def test_long_track_without_evidence_by_density():
+    assert not verify_mod.judge_long(long_track(every=4.0)).review
+    assert verify_mod.judge_long(long_track(every=20.0)).review
+
+
+@pytest.mark.parametrize("action", ["remove", "rename_or_remove_and_backup"])
+def test_review_only_removal_waits_for_a_person(tmp_path, monkeypatch, action):
+    from talkarr import fixes
+    from talkarr.db import SubType
+    from talkarr.forced.decide import Decision
+
+    monkeypatch.setattr(Config, "MISLABELLED_ACTION", action)
+    path = tmp_path / "Film.en.forced.srt"
+    path.write_text("x")
+    decision = Decision(Verdict.MISLABELLED, "r", review=True)
+    [fix] = fixes.build(str(path), SubType.FORCED, decision=decision)
+    assert fix["tier"] == "uncertain"
+
+
+def test_long_track_skips_the_reference_sync(tmp_path, monkeypatch):
+    """Judging a long track needs no ffsubsync pass: lines are matched by text."""
     d = make_film(tmp_path, "Alpha (2001)", 1)
     forced = next(d.glob("*.en.forced.srt"))
-    forced.write_text(make_srt([f"line {i}" for i in range(250)]))
+    forced.write_text(make_srt([f"line {i}" for i in range(250)], duration=1.0, gap=1.0))
 
     def must_not_run(*a, **k):
-        raise AssertionError("expensive evidence gathered for an obvious full subtitle")
+        raise AssertionError("reference synced for a long track")
 
     monkeypatch.setattr(sources, "synced_reference", must_not_run)
-    monkeypatch.setattr(sources, "film_regions", must_not_run)
+    monkeypatch.setattr(sources, "film_regions", lambda *a: ([], {"ok": True, "duration": 7200.0}))
     decision, details = service.verify_forced(str(forced), "/x.mkv", str(tmp_path), ml_url="x")
-    assert decision.verdict == Verdict.MISLABELLED
+    assert decision.verdict == Verdict.MISLABELLED and not decision.review
     assert len(details["ribbon"]["cues"]) == 250
+
+
+def test_genuine_long_track_is_verified_like_any_other(tmp_path, monkeypatch):
+    d = make_film(tmp_path, "Alpha (2001)", 1)
+    forced = next(d.glob("*.en.forced.srt"))
+    for p in d.glob("*.en.srt"):
+        p.unlink()
+    forced.write_text(make_srt([f"foreign line {i}" for i in range(250)], gap=18.0))
+    cues = S.load(str(forced))
+    regions = [Region(a, b, 0.01, (("hi", 0.9), ("en", 0.05))) for a, b in on(cues)]
+    monkeypatch.setattr(
+        sources, "film_regions", lambda *a: (regions, {"ok": True, "duration": 7200.0})
+    )
+    decision, details = service.verify_forced(str(forced), "/x.mkv", str(tmp_path), ml_url="x")
+    assert details["long"]["verdict"] == "genuine"
+    assert decision.verdict == Verdict.IN_SYNC

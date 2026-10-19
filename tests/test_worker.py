@@ -103,13 +103,16 @@ def test_safe_auto_applies_only_safe_fixes(tmp_path, trial_sync):
 def test_full_auto_applies_confident_fixes(tmp_path, trial_sync):
     calls = trial_sync()
     settings.set_mode("full_auto")
-    regular(tmp_path, encoding="cp1252", ad=True)
+    sub = regular(tmp_path, encoding="cp1252", ad=True)
+    before = S.load(sub)
 
     worker.process_pending_jobs()
 
     j, fixes = job()
     assert [f["state"] for f in fixes] == ["applied", "applied"]
-    assert j["outcome"] == "applied" and calls["inplace"] == 1
+    # The sync applied is the trial's correction, not a second ffsubsync run.
+    assert j["outcome"] == "applied" and calls == {"trial": 1, "inplace": 0}
+    assert S.load(sub)[0].start == pytest.approx(before[1].start + 1.25)  # ad cue gone
 
 
 def test_low_confidence_sync_is_uncertain_and_waits(tmp_path, trial_sync):

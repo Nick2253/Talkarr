@@ -140,8 +140,10 @@ def test_settings_page(client, monkeypatch):
 
 def test_apply_all_from_queue(client, library):
     _, regular = library
+    before = S.load(str(regular))
     r = post(client, "/job/rg/apply", {"next": "/"})
-    assert "Couldn't apply" in r.text  # the in-place sync needs a video
+    assert "Couldn't apply" not in r.text  # the proposed correction needs no video
+    assert S.load(str(regular))[0].start == pytest.approx(before[0].start + 1.5)
     page = get(client, "/activity")
     assert "Star Wars (1977).en.srt" in page
 

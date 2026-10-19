@@ -113,6 +113,11 @@ def run_ffsubsync(subtitle_path, media_path, output_path, max_offset=120, timeou
 
     offset = _parse_offset(output)
     framerate = _parse_framerate(output)
+    # ffsubsync prints both rounded ("0.959"), which is up to 1.5 s off across a film
+    # with a framerate change; measure the exact correction from its output instead.
+    measured = measure_correction(subtitle_path, output_path)
+    if measured is not None:
+        framerate, offset = measured
     return SyncResult(
         success=True,
         offset=offset,
@@ -121,6 +126,30 @@ def run_ffsubsync(subtitle_path, media_path, output_path, max_offset=120, timeou
         framerate=framerate,
         score=_parse_score(output),
     )
+
+
+def measure_correction(before_path, after_path):
+    """``(scale, offset)`` with ``after = scale * before + offset`` for each cue start,
+    fitted by least squares, or ``None`` if the files don't pair up cue for cue."""
+    from .forced import subtitles as S
+
+    try:
+        before, after = S.load(before_path), S.load(after_path)
+    except (OSError, ValueError):
+        return None
+    if len(before) < 2 or len(before) != len(after):
+        return None
+    xs, ys = [c.start for c in before], [c.start for c in after]
+    n = len(xs)
+    mx, my = sum(xs) / n, sum(ys) / n
+    var = sum((x - mx) ** 2 for x in xs)
+    if var == 0:
+        return None
+    scale = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / var
+    if abs(scale - 1.0) < 1e-4:
+        scale = 1.0
+    offset = my - scale * mx
+    return scale, round(offset, 3)
 
 
 def _remove(path):

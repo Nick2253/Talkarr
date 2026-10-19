@@ -145,3 +145,20 @@ def test_timeout(files, fake_ffsubsync):
 )
 def test_confidence(offset, framerate, expected):
     assert _estimate_confidence(offset, framerate) == pytest.approx(expected)
+
+
+def test_measure_correction_is_exact_where_the_log_is_rounded(tmp_path):
+    """ffsubsync logs "framerate scale factor: 0.959" for 23.976/25: rebuilding the
+    correction from that is up to 1.5 s off by the end of a film."""
+    from talkarr.forced import subtitles as S
+    from tests.conftest import make_srt
+
+    before = tmp_path / "in.srt"
+    before.write_text(make_srt([f"line {i}" for i in range(400)], start=30.0, gap=15.0))
+    after = tmp_path / "out.srt"
+    after.write_text(S.compose(S.transform(S.load(before), scale=23.976 / 25, offset=-0.9)))
+    scale, offset = sync.measure_correction(str(before), str(after))
+    assert scale == pytest.approx(23.976 / 25, abs=1e-6) and offset == pytest.approx(-0.9, abs=2e-3)
+
+    after.write_text(S.compose(S.load(before)[:-1]))
+    assert sync.measure_correction(str(before), str(after)) is None

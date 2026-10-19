@@ -120,7 +120,9 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
         if abs(offset) >= Config.SYNC_MIN_OFFSET or abs(framerate - 1.0) > 1e-3:
             confidence = sync.confidence or 0.0
             tier = CONFIDENT if confidence >= Config.SYNC_MIN_CONFIDENCE else UNCERTAIN
-            summary = f"Sync {offset:+.2f} s".replace("-", "−")
+            if abs(framerate - 1.0) > 1e-3:
+                tier = UNCERTAIN  # a framerate change has nothing independent to confirm it
+            summary = "Sync " + retime_summary(framerate, offset).removeprefix("Retime ")
             fixes.append(
                 _fix(
                     "sync",
@@ -159,19 +161,22 @@ def _mislabelled_fix(path, decision):
     action = settings.mislabelled_action()
     if action == "flag":
         return None
+    # Only circumstantial evidence (e.g. no audio to show the cues aren't on foreign
+    # speech): a person decides.
+    tier = UNCERTAIN if decision.review else CONFIDENT
     target = _regular_name(path)
     if action == "rename_or_remove_and_backup" and target and not os.path.exists(target):
         return _fix(
             "rename",
             f"Rename to {os.path.basename(target)} (backup kept): it is a full subtitle",
-            CONFIDENT,
+            tier,
             {"to": target},
         )
     backup = action != "remove"
     return _fix(
         "remove",
         f"Remove ({'backup kept' if backup else 'no backup'}): a full subtitle saved as forced",
-        CONFIDENT,
+        tier,
         {"reason": decision.reason, "backup": backup},
     )
 
@@ -231,7 +236,7 @@ class ApplyError(Exception):
     pass
 
 
-def apply(job, proposal, indices, overrides=None, sync_runner=None):
+def apply(job, proposal, indices, overrides=None):
     """Apply ``proposal["fixes"][i]`` for each index. Returns ``(fixes, backup)``.
 
     ``overrides`` may carry ``{"scale": .., "offset": ..}`` for a retime (or a sync,
@@ -254,7 +259,7 @@ def apply(job, proposal, indices, overrides=None, sync_runner=None):
         if fix["state"] != PROPOSED:
             continue
         try:
-            _apply_one(fix, job, path, overrides or {}, backup, sync_runner)
+            _apply_one(fix, job, path, overrides or {}, backup)
             fix["state"], fix["error"] = APPLIED, None
         except Exception as e:  # noqa: BLE001 - recorded on the fix, shown in the UI
             fix["state"], fix["error"] = FAILED, str(e)
@@ -264,7 +269,7 @@ def apply(job, proposal, indices, overrides=None, sync_runner=None):
     return fixes, backup
 
 
-def _apply_one(fix, job, path, overrides, backup, sync_runner):
+def _apply_one(fix, job, path, overrides, backup):
     kind = fix["kind"]
     if kind == "clean":
         from .cleaner import clean_subtitle
@@ -291,11 +296,9 @@ def _apply_one(fix, job, path, overrides, backup, sync_runner):
     elif kind == "retime":
         _retime(path, fix["params"]["scale"], fix["params"]["offset"])
     elif kind == "sync":
-        from .sync import sync_subtitle
-
-        result = (sync_runner or sync_subtitle)(path, job.get("media_path"), SubType.REGULAR)
-        if not result.success:
-            raise ApplyError(result.error)
+        # Exactly the correction that was proposed (ffsubsync's trial result: framerate
+        # scale, then offset), not a fresh ffsubsync run that could decide differently.
+        _retime(path, fix["params"].get("framerate", 1.0), fix["params"]["offset"])
     elif kind == "rename":
         target = fix["params"]["to"]
         if os.path.exists(target):

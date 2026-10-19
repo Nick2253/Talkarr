@@ -13,9 +13,18 @@ from .anchors import has_foreign_annotations, text_anchors
 from .fit import fit_anchors
 from .subtitles import normalize
 
-# A "forced" subtitle with this many cues, and no reference to compare with,
-# is a full subtitle (real forced tracks rarely exceed ~100).
+# A "forced" subtitle with this many cues is *probably* a full subtitle, but films with a
+# lot of foreign dialogue have genuine forced tracks this long (Lion, Slumdog
+# Millionaire, District 9: 220-400 cues). Removing one is irreversible, so a long track
+# is only called mislabelled on evidence: see ``judge_long``.
 MISLABEL_MIN_CUES = 200
+# judge_long: share of a long track's cues that sit on foreign speech (best audio fit)
+# at or above which it is a genuine forced track, and at or below which it is not.
+LONG_FOREIGN_SHARE = 0.5
+LONG_NOT_FOREIGN_SHARE = 0.25
+# Cues per minute (over the track's own span) of ordinary dialogue; genuine forced
+# tracks, even long ones, are sparser (Lion 2.8, Slumdog 3.7; Archer's full subs 19).
+FULL_DIALOGUE_DENSITY = 6.0
 # With a reference: share of the reference's cues the "forced" sub reproduces.
 MISLABEL_REFERENCE_SHARE = 0.5
 # A usable fit must explain this share of the forced cues that found any anchor,
@@ -68,14 +77,75 @@ class Report:
         return d
 
 
-def verify(forced, reference=None):
-    """Judge ``forced`` (list of Cue) against an optional full English ``reference``."""
+def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
+    """Is a long "forced" track (``MISLABEL_MIN_CUES`` or more) a full subtitle?
+
+    Returns a MISLABELLED report (``review`` set when the evidence is only
+    circumstantial), or ``None`` when it looks like a genuine forced track for a film
+    with a lot of foreign dialogue, to be verified like any other.
+
+    ``timeline_fit``/``foreign_spans`` come from the audio path (None if not run).
+    """
+    n = len(forced)
+    span_min = max((forced[-1].end - forced[0].start) / 60, 1.0)
+    density = n / span_min
+
+    def mislabelled(reason, review):
+        report = Report(Verdict.MISLABELLED, reason, n, reference_cues=len(reference or ()))
+        report.review = review
+        report.details["density"] = round(density, 1)
+        return report
+
+    # Audio: does the track sit on foreign speech? That is what a forced track is for.
+    if foreign_spans is not None:
+        if len(foreign_spans) < AUDIO_MIN_FOREIGN_SPANS:
+            return mislabelled(
+                f"{n} cues, and the film has almost no foreign speech: a full subtitle "
+                "labelled as forced",
+                review=False,
+            )
+        if timeline_fit is not None:
+            share = timeline_fit.placed / n
+            if share >= LONG_FOREIGN_SHARE and timeline_fit.placed > timeline_fit.chance:
+                return None
+            if share <= LONG_NOT_FOREIGN_SHARE:
+                return mislabelled(
+                    f"{n} cues, only {share:.0%} of them on foreign speech: a full subtitle "
+                    "labelled as forced",
+                    review=False,
+                )
+
+    # Text: a genuine forced track is a small part of the full subtitle (its foreign
+    # lines); a full subtitle reproduces most of it.
+    if reference:
+        anchored = {a.forced_index for a in text_anchors(forced, reference)}
+        share = len(anchored) / len(reference)
+        if share < MISLABEL_REFERENCE_SHARE:
+            return None
+        return mislabelled(
+            f"{n} cues reproducing {share:.0%} of the {len(reference)}-cue full subtitle: "
+            "a full subtitle labelled as forced",
+            review=density < FULL_DIALOGUE_DENSITY,  # a mostly foreign film's track is both
+        )
+
+    return mislabelled(
+        f"{n} cues ({density:.1f} a minute): a full subtitle labelled as forced",
+        review=density < FULL_DIALOGUE_DENSITY,
+    )
+
+
+def verify(forced, reference=None, long_ok=False):
+    """Judge ``forced`` (list of Cue) against an optional full English ``reference``.
+
+    ``long_ok``: ``judge_long`` already cleared a long track as a genuine forced one,
+    so neither its length nor its overlap with the full subtitle makes it mislabelled.
+    """
     n = len(forced)
     if n == 0:
         return Report(Verdict.UNVERIFIABLE, "forced subtitle has no cues", 0)
 
     # S0: real forced tracks are sparse; this many cues is a full subtitle.
-    if n >= MISLABEL_MIN_CUES:
+    if n >= MISLABEL_MIN_CUES and not long_ok:
         return Report(
             Verdict.MISLABELLED,
             f"{n} cues: a full subtitle labelled as forced",
@@ -92,7 +162,11 @@ def verify(forced, reference=None):
 
     # S0: a sparse "forced" subtitle that still reproduces most of a (short) full
     # subtitle is a copy of it.
-    if len(reference) >= MIN_INLIERS and len(anchored) >= MISLABEL_REFERENCE_SHARE * len(reference):
+    if (
+        not long_ok
+        and len(reference) >= MIN_INLIERS
+        and len(anchored) >= MISLABEL_REFERENCE_SHARE * len(reference)
+    ):
         report.verdict = Verdict.MISLABELLED
         report.reason = (
             f"{n} cues, {len(anchored)} of them found in the {len(reference)}-cue full "
@@ -197,10 +271,11 @@ AUDIO_CHANCE_MARGIN = 0.1
 AUDIO_MIN_FOREIGN_SPANS = 3
 
 
-def verify_audio(forced, timeline_fit, foreign_spans):
+def verify_audio(forced, timeline_fit, foreign_spans, long_ok=False):
     """Judge ``forced`` against the film's foreign-speech timeline.
 
-    ``timeline_fit`` is ``audio.fit_timeline(forced, foreign_spans)``.
+    ``timeline_fit`` is ``audio.fit_timeline(forced, foreign_spans)``; ``long_ok`` as
+    for ``verify``.
     """
     n = len(forced)
     report = Report(Verdict.UNVERIFIABLE, "", n)
@@ -208,7 +283,7 @@ def verify_audio(forced, timeline_fit, foreign_spans):
     if n == 0:
         report.reason = "forced subtitle has no cues"
         return report
-    if n >= MISLABEL_MIN_CUES:
+    if n >= MISLABEL_MIN_CUES and not long_ok:
         report.verdict = Verdict.MISLABELLED
         report.reason = f"{n} cues: a full subtitle labelled as forced"
         return report

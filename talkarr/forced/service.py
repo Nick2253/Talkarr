@@ -13,7 +13,7 @@ from . import sources
 from . import subtitles as S
 from .audio import fit_timeline, foreign_timeline
 from .decide import combine
-from .verify import MISLABEL_MIN_CUES, verify, verify_audio
+from .verify import MISLABEL_MIN_CUES, judge_long, verify, verify_audio
 
 log = logging.getLogger(__name__)
 
@@ -22,38 +22,11 @@ def verify_forced(forced_path, video, cache_dir, ml_url=""):
     """Returns ``(Decision, details)`` for the forced subtitle at ``forced_path``."""
     forced = S.load(forced_path)
     details = {"forced_cues": len(forced)}
-
-    # A "forced" subtitle with this many cues is a full subtitle; the count alone
-    # proves it, so skip the expensive evidence (ffsubsync pass, audio analysis).
-    if len(forced) >= MISLABEL_MIN_CUES:
-        decision = combine(verify(forced, None))
-        details["ribbon"] = {
-            "runtime": round(max([c.end for c in forced] + [0.0]) + 60.0, 1),
-            "cues": [[round(c.start, 3), round(c.end, 3)] for c in forced],
-            "speech": [],
-        }
-        return decision, details
-
-    text_report = None
     reference_path = find_reference_subtitle(forced_path)
     details["reference"] = reference_path
-    if reference_path:
-        reference, sync_info = sources.synced_reference(
-            video, reference_path, os.path.join(cache_dir, "refsync")
-        )
-        details["reference_sync"] = sync_info
-        if reference is None:
-            # ffsubsync failed: an unsynced reference still catches mislabels and
-            # lines that are missing, but its timing is not trusted (review).
-            reference = S.load(reference_path)
-        text_report = verify(forced, reference)
-        if not sync_info.get("ok") and text_report.verdict == "retimed":
-            text_report.review = True
-            text_report.reason += " (full subtitle could not be synced to the audio: review)"
-        details["text"] = text_report.as_dict()
 
-    audio_report = None
-    speech, runtime = [], None
+    # Audio first: it is cached per film, and a long track needs it to be judged.
+    timeline, fit, runtime = None, None, None
     if ml_url and len(forced) > 0:
         try:
             regions, info = sources.film_regions(video, os.path.join(cache_dir, "audio"), ml_url)
@@ -64,17 +37,58 @@ def verify_forced(forced_path, video, cache_dir, ml_url=""):
         if regions is not None:
             runtime = info.get("duration")
             timeline = foreign_timeline(regions)
-            speech = [[round(a, 2), round(b, 2)] for a, b in timeline.foreign]
             fit = fit_timeline(forced, timeline.foreign)
-            audio_report = verify_audio(forced, fit, timeline.foreign)
-            details["audio"] = audio_report.as_dict()
+    speech = [[round(a, 2), round(b, 2)] for a, b in timeline.foreign] if timeline else []
 
-    decision = combine(text_report, audio_report)
-    # What the review page draws: the cues, the film's length, the foreign speech.
+    # A long track is a full subtitle or a genuine forced track for a film with a lot of
+    # foreign dialogue; decide which before anything else (and without the expensive
+    # reference sync: matching lines by text doesn't need the timing).
+    long_ok = False
+    if len(forced) >= MISLABEL_MIN_CUES:
+        report = judge_long(
+            forced,
+            S.load(reference_path) if reference_path else None,
+            fit,
+            timeline.foreign if timeline else None,
+        )
+        if report is not None:
+            details["long"] = report.as_dict()
+            return combine(report), {**details, "ribbon": _ribbon(forced, runtime, speech)}
+        long_ok = True
+        details["long"] = {"verdict": "genuine", "reason": "a long track on foreign speech"}
+
+    text_report = None
+    if reference_path:
+        reference, sync_info = sources.synced_reference(
+            video, reference_path, os.path.join(cache_dir, "refsync")
+        )
+        details["reference_sync"] = sync_info
+        if reference is None:
+            # ffsubsync failed: an unsynced reference still catches mislabels and
+            # lines that are missing, but its timing is not trusted (review).
+            reference = S.load(reference_path)
+        text_report = verify(forced, reference, long_ok=long_ok)
+        if not sync_info.get("ok") and text_report.verdict == "retimed":
+            text_report.review = True
+            text_report.reason += " (full subtitle could not be synced to the audio: review)"
+        details["text"] = text_report.as_dict()
+
+    audio_report = None
+    if timeline is not None:
+        audio_report = verify_audio(forced, fit, timeline.foreign, long_ok=long_ok)
+        details["audio"] = audio_report.as_dict()
+
+    return combine(text_report, audio_report), {
+        **details,
+        "ribbon": _ribbon(forced, runtime, speech),
+    }
+
+
+def _ribbon(forced, runtime, speech):
+    """What the review page draws: the cues, the film's length, the foreign speech."""
     ends = [c.end for c in forced]
-    details["ribbon"] = {
+    return {
         "runtime": round(runtime or (max(ends + [0.0]) + 60.0), 1),
         "cues": [[round(c.start, 3), round(c.end, 3)] for c in forced],
         "speech": speech,
     }
-    return decision, details
