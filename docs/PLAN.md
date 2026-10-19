@@ -331,6 +331,26 @@ modifications" (owner: "at least match Bazarr's capability", configurable):
 - Fixed along the way: applying one fix left the others un-appliable, because the
   proposal's fingerprint still described the original file.
 
+**2026-10-18, pressure test before Full Auto.**
+- **Long forced tracks.** Every "forced" sub of 200+ cues was called a full subtitle
+  from the count alone, and would be removed without a backup. Lion (306 cues, 11% of
+  them in the full sub), Slumdog Millionaire (405, 23%), District 9, Thirteen Lives and
+  Call Me by Your Name are genuine. `judge_long` decides on evidence instead:
+  - audio: cues on foreign speech → genuine; not on it (≤ 25%), or a film with no
+    foreign speech → full subtitle;
+  - text: a small part of the full sub → genuine; a copy → full subtitle;
+  - circumstantial (no audio, sparse track) → review.
+  On 26 real cases: the five genuine tracks are kept (in sync or left alone), Lamb,
+  Black Robe, Everything Is Illuminated, Mary Poppins, PlayTime and Band of Brothers
+  wait for a person, and the clear full subtitles are still removed. A copy of a
+  sparse "full" subtitle (Borat) also waits.
+- **Sync.** Applying re-ran ffsubsync instead of applying the proposed correction; it
+  now applies the trial's correction, measured from ffsubsync's output (its log rounds
+  the framerate: up to 1.5 s off by the end of a film). Framerate changes wait.
+  On 14 films' embedded (in-sync) English tracks, ffsubsync proposed nothing on 13
+  (+0.30 s on one) and recovered a +2.5 s shift on all 14 (within 0.36 s).
+- `_estimate_confidence` is a heuristic on offset size, not a measure of fit quality.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

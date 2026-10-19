@@ -87,13 +87,12 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
     ``timeline_fit``/``foreign_spans`` come from the audio path (None if not run).
     """
     n = len(forced)
-    span_min = max((forced[-1].end - forced[0].start) / 60, 1.0)
-    density = n / span_min
+    per_minute = density(forced)
 
     def mislabelled(reason, review):
         report = Report(Verdict.MISLABELLED, reason, n, reference_cues=len(reference or ()))
         report.review = review
-        report.details["density"] = round(density, 1)
+        report.details["density"] = round(per_minute, 1)
         return report
 
     # Audio: does the track sit on foreign speech? That is what a forced track is for.
@@ -125,13 +124,20 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
         return mislabelled(
             f"{n} cues reproducing {share:.0%} of the {len(reference)}-cue full subtitle: "
             "a full subtitle labelled as forced",
-            review=density < FULL_DIALOGUE_DENSITY,  # a mostly foreign film's track is both
+            review=per_minute < FULL_DIALOGUE_DENSITY,  # a mostly foreign film's track is both
         )
 
     return mislabelled(
-        f"{n} cues ({density:.1f} a minute): a full subtitle labelled as forced",
-        review=density < FULL_DIALOGUE_DENSITY,
+        f"{n} cues ({per_minute:.1f} a minute): a full subtitle labelled as forced",
+        review=per_minute < FULL_DIALOGUE_DENSITY,
     )
+
+
+def density(cues):
+    """Cues per minute over the subtitle's own span."""
+    if not cues:
+        return 0.0
+    return len(cues) / max((cues[-1].end - cues[0].start) / 60, 1.0)
 
 
 def verify(forced, reference=None, long_ok=False):
@@ -172,6 +178,11 @@ def verify(forced, reference=None, long_ok=False):
             f"{n} cues, {len(anchored)} of them found in the {len(reference)}-cue full "
             "subtitle: a full subtitle labelled as forced"
         )
+        if density(reference) < FULL_DIALOGUE_DENSITY:
+            # The "full" subtitle is as sparse as a forced track (Borat: 157 cues in 77
+            # minutes), so it may be the forced track itself, saved under the wrong name.
+            report.review = True
+            report.reason += " (the full subtitle is sparse too: review)"
         return report
 
     fit = fit_anchors(anchors)

@@ -274,6 +274,15 @@ def test_long_copy_of_the_full_subtitle():
     assert verify_mod.judge_long(sparse, list(sparse)).review
 
 
+def test_copy_of_a_sparse_full_subtitle_waits_for_a_person():
+    """Borat: 154 "forced" cues, all in a 157-cue "full" subtitle spanning 77 minutes."""
+    sparse = long_track(n=150, every=30.0)
+    report = verify_mod.verify(sparse, list(sparse))
+    assert report.verdict == Verdict.MISLABELLED and report.review
+    dense = long_track(n=150, every=4.0)
+    assert not verify_mod.verify(dense[:60], dense[:100]).review
+
+
 def test_long_track_without_evidence_by_density():
     assert not verify_mod.judge_long(long_track(every=4.0)).review
     assert verify_mod.judge_long(long_track(every=20.0)).review
