@@ -338,3 +338,14 @@ def test_state_of(outcome, verdict, state):
     from talkarr.ui import state_of
 
     assert state_of({"outcome": outcome, "verdict": verdict}) == state
+
+
+def test_settings_offers_to_apply_waiting_fixes(client, library):
+    assert "Apply them now" not in get(client, "/settings")  # Manual applies nothing itself
+    settings.set_mode("safe_auto")
+    page = get(client, "/settings")
+    assert "2 subtitles have waiting fixes" in page and "Apply them now" in page
+    page = html.unescape(post(client, "/settings/catch-up", {}).text)
+    assert "Applying the waiting fixes on 2 subtitles" in page and "Stop" in page
+    page = html.unescape(post(client, "/settings/catch-up", {"stop": "1"}).text)
+    assert "Stopped." in page and "Apply them now" in page

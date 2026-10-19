@@ -365,3 +365,7 @@ footer { padding-block: 24px 40px; color: var(--slate-4); font-size: 12px; borde
   .bar .wrap { gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Settings: applying the fixes already waiting */
+.catch-up { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.catch-up p { margin: 0; font-size: 13px; flex: 1 1 260px; }

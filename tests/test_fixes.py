@@ -282,3 +282,60 @@ def test_configuration_shows_the_exact_compose_value(monkeypatch):
     monkeypatch.setattr(Config, "MISLABELLED_ACTION", "rename_or_remove")
     rows = {r.label: r for r in settings.configuration()}
     assert rows["Mislabelled forced subtitles"].value == "rename_or_remove_and_backup"
+
+
+# --- catching up on fixes already waiting -------------------------------------------------
+
+
+def waiting_job(tmp_path, job_id, fix_list):
+    sub = tmp_path / f"{job_id}.en.srt"
+    sub.write_text(make_srt([f"line {i} here" for i in range(10)]))
+    db.create_job(job_id, str(sub), "", "en")
+    db.update_job_status(job_id, "completed")
+    db.update_job_proposal(
+        job_id, {"fingerprint": fixes.fingerprint(str(sub)), "fixes": fix_list}, "pending"
+    )
+    return sub
+
+
+def test_catch_up_applies_what_the_mode_would_have(tmp_path, monkeypatch):
+    from talkarr import worker
+
+    settings.set_mode("safe_auto")
+    retime = fixes._fix("retime", "r", "safe", {"scale": 1.0, "offset": 2.0})
+    waiting_job(tmp_path, "a", [retime])
+    waiting_job(
+        tmp_path, "b", [fixes._fix("retime", "r", "confident", {"scale": 1.0, "offset": 2.0})]
+    )
+    assert [j["id"] for j, _ in review.waiting_for("safe_auto")] == ["a"]
+
+    assert review.start_catch_up() == 1
+    worker.process_pending_jobs()
+    assert db.get_job("a")["outcome"] == "applied"
+    assert json.loads(db.get_job("a")["backup"])[0]["by"] == "safe_auto"
+    worker.process_pending_jobs()  # nothing left: the catch-up ends
+    assert not review.catch_up_running()
+    assert db.get_job("b")["outcome"] == "pending"  # Full Auto's, not Safe Auto's
+
+
+def test_catch_up_needs_an_automatic_mode():
+    with pytest.raises(review.ReviewError):
+        review.start_catch_up()
+
+
+def test_catch_up_rechecks_a_changed_file_and_spaces_out_removals(tmp_path, monkeypatch):
+    settings.set_mode("full_auto")
+    monkeypatch.setattr(Config, "BAZARR_API_KEY", "")
+    sub = waiting_job(tmp_path, "a", [fixes._fix("remove", "r", "confident", {"backup": False})])
+    changed = waiting_job(
+        tmp_path, "b", [fixes._fix("retime", "r", "safe", {"scale": 1.0, "offset": 2.0})]
+    )
+    changed.write_text("changed since the check")
+    review.start_catch_up()
+    slept = []
+
+    review.catch_up_step(sleep=slept.append)
+    assert not sub.exists() and slept == [review.REMOVAL_PACE_SECONDS]
+    review.catch_up_step(sleep=slept.append)
+    assert db.get_job("b")["status"] == "pending"  # queued for a fresh check, not retried
+    assert review.catch_up_step(sleep=slept.append) is False

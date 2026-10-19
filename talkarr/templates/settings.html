@@ -23,6 +23,17 @@
       </div>
     </form>
     <p class="muted" style="font-size:12px;margin-top:14px">Changing the mode never touches fixes that are already waiting; it decides what happens to subtitles checked from now on.</p>
+    {% if catching_up %}
+    <form class="catch-up" method="post" action="{{ url_for('ui.catch_up_action') }}">
+      <p><strong>Applying waiting fixes:</strong> {{ waiting }} subtitle{{ 's' if waiting != 1 }} left, one at a time. Removals are spaced out so Bazarr isn't flooded with searches.</p>
+      <button class="btn-ghost" type="submit" name="stop" value="1">Stop</button>
+    </form>
+    {% elif waiting %}
+    <form class="catch-up" method="post" action="{{ url_for('ui.catch_up_action') }}">
+      <p><strong>{{ waiting }} subtitle{{ 's have' if waiting != 1 else ' has' }} waiting fixes</strong> that {{ modes | selectattr(0, 'equalto', mode) | map(attribute=1) | first }} applies on its own.</p>
+      <button class="btn-apply" type="submit" data-confirm="Apply fixes on {{ waiting }} subtitle{{ 's' if waiting != 1 }}?">Apply them now</button>
+    </form>
+    {% endif %}
   </div>
   <div class="panel">
     <div class="panel-head"><h2>Configuration</h2><span>read-only</span></div>

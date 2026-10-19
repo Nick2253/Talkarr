@@ -6,8 +6,9 @@ Shared by the worker (automatic modes) and the web UI (by hand).
 import json
 import logging
 import os
+import time
 
-from . import db, fixes
+from . import db, fixes, settings
 from .db import JobStatus
 
 log = logging.getLogger(__name__)
@@ -92,3 +93,61 @@ def recheck_job(job_id):
         raise ReviewError("no such job")
     db.set_job_source(job_id, "manual")  # ahead of any scan backlog
     db.update_job_status(job_id, JobStatus.PENDING)
+
+
+# --- catching up -----------------------------------------------------------------------
+# A mode only acts on subtitles checked after it is chosen. Catching up applies what it
+# would have applied to the fixes already waiting, one subtitle at a time.
+
+CATCH_UP = "catch_up"  # settings key: set while a catch-up runs
+# Each removal of a Bazarr download makes Bazarr search its providers again.
+REMOVAL_PACE_SECONDS = 10.0
+
+
+def waiting_for(mode):
+    """``[(job, indices)]``: checked subtitles with fixes ``mode`` applies on its own."""
+    found = []
+    for job in db.get_jobs(outcome=["pending", "partial"], limit=1_000_000):
+        if job["status"] != JobStatus.COMPLETED or not job.get("proposal"):
+            continue
+        indices = fixes.auto_indices(mode, json.loads(job["proposal"])["fixes"])
+        if indices:
+            found.append((job, indices))
+    return sorted(found, key=lambda item: (item[0]["created_at"], item[0]["id"]))  # oldest first
+
+
+def start_catch_up():
+    mode = settings.get_mode()
+    if mode == settings.Mode.MANUAL:
+        raise ReviewError("Manual applies nothing on its own; pick Safe Auto or Full Auto")
+    db.set_setting(CATCH_UP, "1")
+    return len(waiting_for(mode))
+
+
+def stop_catch_up():
+    db.set_setting(CATCH_UP, "")
+
+
+def catch_up_running():
+    return bool(db.get_setting(CATCH_UP))
+
+
+def catch_up_step(sleep=time.sleep):
+    """Apply the next waiting subtitle's fixes. Returns False once there are none left
+    (or the mode was set back to Manual), which ends the catch-up."""
+    mode = settings.get_mode()
+    waiting = waiting_for(mode) if mode != settings.Mode.MANUAL else []
+    if not waiting:
+        stop_catch_up()
+        return False
+    job, indices = waiting[0]
+    kinds = {json.loads(job["proposal"])["fixes"][i]["kind"] for i in indices}
+    try:
+        apply_job(job["id"], indices, by=mode)
+    except ReviewError as e:
+        log.warning("Catch-up: job %s not applied: %s", job["id"], e)
+        if any(j["id"] == job["id"] for j, _ in waiting_for(mode)):
+            recheck_job(job["id"])  # e.g. the file changed: check it again, don't retry
+    if "remove" in kinds:
+        sleep(REMOVAL_PACE_SECONDS)
+    return True

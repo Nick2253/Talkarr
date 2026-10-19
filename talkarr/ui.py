@@ -572,8 +572,15 @@ def settings_page():
     for item in settings.configuration():
         groups.setdefault(item.group, []).append(item)
     modes = [(m, Mode.LABELS[m], MODE_TEXT[m]) for m in Mode.ALL]
+    mode = settings.get_mode()
+    waiting = len(review.waiting_for(mode)) if mode != Mode.MANUAL else 0
     return render_template(
-        "settings.html", nav="settings", modes=modes, config_groups=list(groups.items())
+        "settings.html",
+        nav="settings",
+        modes=modes,
+        config_groups=list(groups.items()),
+        waiting=waiting,
+        catching_up=review.catch_up_running(),
     )
 
 
@@ -667,6 +674,23 @@ def scan_action():
     except (ScanError, scanner.ScanBusy) as e:
         flash(str(e), "error")
     return redirect(url_for("ui.library_page"))
+
+
+@ui.route("/settings/catch-up", methods=["POST"])
+def catch_up_action():
+    if request.form.get("stop"):
+        review.stop_catch_up()
+        flash("Stopped. The fixes not applied yet are still waiting.")
+        return redirect(url_for("ui.settings_page"))
+    try:
+        n = review.start_catch_up()
+        flash(
+            f"Applying the waiting fixes on {n} subtitle{'s' if n != 1 else ''}, one at a time "
+            "(new subtitles are checked first). Follow along in Activity."
+        )
+    except review.ReviewError as e:
+        flash(str(e), "error")
+    return redirect(url_for("ui.settings_page"))
 
 
 @ui.route("/settings/mode", methods=["POST"])

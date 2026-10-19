@@ -38,13 +38,16 @@ log = logging.getLogger(__name__)
 
 def process_pending_jobs():
     """Check queued subtitles one at a time, re-reading the queue after each, so a
-    re-check or a new subtitle from Bazarr doesn't wait behind a whole scan."""
+    re-check or a new subtitle from Bazarr doesn't wait behind a whole scan. Then, if a
+    catch-up is running, apply one waiting subtitle's fixes."""
     while (job := next_pending()) is not None:
         try:
             _process_job(job)
         except Exception as e:
             log.exception("Job %s failed: %s", job["id"], e)
             update_job_status(job["id"], JobStatus.FAILED, str(e))
+    if review.catch_up_running():
+        review.catch_up_step()
 
 
 def _process_job(job):
