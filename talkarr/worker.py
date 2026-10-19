@@ -35,6 +35,8 @@ from .validator import validate
 
 log = logging.getLogger(__name__)
 
+GONE = "the subtitle was replaced or deleted before it was checked"
+
 
 def process_pending_jobs():
     """Check queued subtitles one at a time, re-reading the queue after each, so a
@@ -53,6 +55,11 @@ def process_pending_jobs():
 def _process_job(job):
     path = job["subtitle_path"]
     notes = []
+    if not os.path.isfile(path):
+        # Bazarr replaced or deleted it before its turn came; its replacement is queued
+        # separately.
+        update_job_status(job["id"], JobStatus.SKIPPED, GONE)
+        return
 
     update_job_status(job["id"], JobStatus.CLASSIFYING)
     sub_type = classify(path, job.get("language"))

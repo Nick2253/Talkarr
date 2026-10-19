@@ -515,7 +515,10 @@ def _evidence(job):
         if isinstance(note, str) and "failed" in note:
             items.append(("tally", note[0].upper() + note[1:] + "."))
     if job.get("error"):
-        items.append(("tally", f"Check failed: {job['error']}"))
+        if job.get("status") == "skipped":
+            items.append(("subtitle", f"Not checked: {job['error']}."))
+        else:
+            items.append(("tally", f"Check failed: {job['error']}"))
     return items
 
 

@@ -166,6 +166,13 @@ def test_exception_marks_job_failed(tmp_path, monkeypatch):
     assert j["status"] == JobStatus.FAILED and j["error"] == "kaput"
 
 
+def test_subtitle_gone_before_its_turn_is_skipped(tmp_path):
+    os.unlink(regular(tmp_path))
+    worker.process_pending_jobs()
+    j = db.get_job("j")
+    assert j["status"] == JobStatus.SKIPPED and j["error"] == worker.GONE
+
+
 # --- forced subtitles ------------------------------------------------------------------
 
 
