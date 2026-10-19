@@ -30,7 +30,7 @@ from .db import (
 )
 from .forced.service import verify_forced
 from .media import find_video_for_subtitle
-from .sync import run_ffsubsync
+from .sync import confirm_framerate, run_ffsubsync
 from .validator import validate
 
 log = logging.getLogger(__name__)
@@ -144,7 +144,12 @@ def _trial_sync(subtitle_path, media_path):
     fd, out = tempfile.mkstemp(suffix=".srt", dir=scratch)
     os.close(fd)
     try:
-        return run_ffsubsync(subtitle_path, media_path, out)
+        result = run_ffsubsync(subtitle_path, media_path, out)
+        if result.success and abs((result.framerate or 1.0) - 1.0) > 1e-3:
+            result.framerate_confirmed = confirm_framerate(
+                subtitle_path, media_path, result.framerate, result.offset or 0.0, scratch
+            )
+        return result
     finally:
         if os.path.exists(out):
             os.unlink(out)

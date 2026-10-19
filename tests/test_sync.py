@@ -162,3 +162,42 @@ def test_measure_correction_is_exact_where_the_log_is_rounded(tmp_path):
 
     after.write_text(S.compose(S.load(before)[:-1]))
     assert sync.measure_correction(str(before), str(after)) is None
+
+
+@pytest.mark.parametrize(
+    ("ends", "expected"),
+    [
+        ((0.36, 1.18), True),  # Futurama S05E04: both ends where x1.001 +0.13 puts them
+        ((0.63, 0.11), False),  # S03E03: the ends disagree with the drift
+        ((0.30, 0.30), False),  # no drift at all
+        (None, None),  # a check sync failed
+    ],
+)
+def test_confirm_framerate(tmp_path, monkeypatch, ends, expected):
+    from tests.conftest import make_srt
+
+    sub = tmp_path / "Show.en.srt"
+    sub.write_text(make_srt([f"line {i}" for i in range(90)], start=10.0, gap=15.0))
+    offsets = iter(ends or ())
+    calls = []
+
+    def run(src, media, out, fix_framerate=True, **_):
+        calls.append(fix_framerate)
+        o = next(offsets, None)
+        return sync.SyncResult(success=o is not None, offset=o)
+
+    monkeypatch.setattr(sync, "run_ffsubsync", run)
+    # the thirds' cues average 256.5 s and 1276.5 s: this predicts +0.36 and +1.38
+    scale = 1.001
+    offset = 0.36 - (scale - 1) * 256.5
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    assert sync.confirm_framerate(str(sub), "v.mkv", scale, offset, str(scratch)) is expected
+    assert set(calls) == {False} and len(calls) == (2 if ends else 1)
+    assert os.listdir(scratch) == []
+
+
+def test_no_fix_framerate_flag(files, fake_ffsubsync, tmp_path):
+    calls = fake_ffsubsync()
+    sync.run_ffsubsync(files[0], files[1], str(tmp_path / "o.srt"), fix_framerate=False)
+    assert "--no-fix-framerate" in calls[0]

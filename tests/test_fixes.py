@@ -86,6 +86,21 @@ def test_build_framerate_only_sync():
     assert [x["kind"] for x in fixes.build("/m/a.en.srt", "regular", sync=sync)] == ["sync"]
 
 
+@pytest.mark.parametrize(
+    ("confirmed", "tier"), [(None, "uncertain"), (False, "uncertain"), (True, "confident")]
+)
+def test_framerate_sync_is_confident_only_when_confirmed(confirmed, tier):
+    sync = SimpleNamespace(
+        success=True,
+        offset=0.3,
+        confidence=1.0,
+        framerate=24 / 23.976,
+        framerate_confirmed=confirmed,
+    )
+    (fix,) = fixes.build("/m/a.en.srt", "regular", sync=sync)
+    assert fix["tier"] == tier and fix["params"]["framerate_confirmed"] is confirmed
+
+
 def test_auto_indices_and_outcome():
     f = [
         fixes._fix("clean", "c", "safe", {}),

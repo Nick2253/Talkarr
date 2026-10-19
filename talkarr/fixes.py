@@ -120,8 +120,8 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
         if abs(offset) >= Config.SYNC_MIN_OFFSET or abs(framerate - 1.0) > 1e-3:
             confidence = sync.confidence or 0.0
             tier = CONFIDENT if confidence >= Config.SYNC_MIN_CONFIDENCE else UNCERTAIN
-            if abs(framerate - 1.0) > 1e-3:
-                tier = UNCERTAIN  # a framerate change has nothing independent to confirm it
+            if abs(framerate - 1.0) > 1e-3 and not getattr(sync, "framerate_confirmed", None):
+                tier = UNCERTAIN  # both ends synced on their own didn't bear it out
             summary = "Sync " + retime_summary(framerate, offset).removeprefix("Retime ")
             fixes.append(
                 _fix(
@@ -132,6 +132,7 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
                         "offset": offset,
                         "framerate": framerate,
                         "confidence": confidence,
+                        "framerate_confirmed": getattr(sync, "framerate_confirmed", None),
                     },
                 )
             )

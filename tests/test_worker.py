@@ -25,14 +25,14 @@ def trial_sync(monkeypatch):
     """Fake ffsubsync trial run (worker) and in-place sync (applying a sync fix)."""
     calls = {"trial": 0, "inplace": 0}
 
-    def install(offset=1.25, confidence=0.9, success=True):
+    def install(offset=1.25, confidence=0.9, success=True, framerate=1.0):
         def run(sub, media, out, **_):
             calls["trial"] += 1
             return SimpleNamespace(
                 success=success,
                 offset=offset,
                 confidence=confidence,
-                framerate=1.0,
+                framerate=framerate,
                 error=None if success else "no audio",
             )
 
@@ -113,6 +113,25 @@ def test_full_auto_applies_confident_fixes(tmp_path, trial_sync):
     # The sync applied is the trial's correction, not a second ffsubsync run.
     assert j["outcome"] == "applied" and calls == {"trial": 1, "inplace": 0}
     assert S.load(sub)[0].start == pytest.approx(before[1].start + 1.25)  # ad cue gone
+
+
+@pytest.mark.parametrize(("confirmed", "tier"), [(True, "confident"), (False, "uncertain")])
+def test_framerate_change_is_checked_at_both_ends(
+    tmp_path, trial_sync, monkeypatch, confirmed, tier
+):
+    trial_sync(framerate=24 / 23.976)
+    checked = []
+
+    def confirm(sub, media, scale, offset, scratch):
+        checked.append((scale, offset))
+        return confirmed
+
+    monkeypatch.setattr(worker, "confirm_framerate", confirm)
+    regular(tmp_path)
+    worker.process_pending_jobs()
+    _, fixes = job()
+    assert checked == [(24 / 23.976, 1.25)]
+    assert [(f["kind"], f["tier"]) for f in fixes] == [("sync", tier)]
 
 
 def test_low_confidence_sync_is_uncertain_and_waits(tmp_path, trial_sync):

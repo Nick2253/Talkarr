@@ -351,6 +351,14 @@ modifications" (owner: "at least match Bazarr's capability", configurable):
   (+0.30 s on one) and recovered a +2.5 s shift on all 14 (within 0.36 s).
 - `_estimate_confidence` is a heuristic on offset size, not a measure of fit quality.
 
+**2026-10-19, framerate syncs.** Of ~950 Bazarr downloads, 195 syncs waited only because
+ffsubsync changed the framerate (mostly 23.976 ↔ 24). Syncing each subtitle's first and
+last thirds on their own (offsets only) showed 11 of 13 changes were real: both ends
+within 0.2 s of the prediction, 0.8–4 s of drift that an offset alone leaves. The two
+wrong ones (a Futurama episode whose ends disagree, a 25 fps guess on Star Wars III
+that put the end 170 s out) fail the same check. `confirm_framerate` now runs it for
+every framerate change; confirmed ones are confident, the rest still wait.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

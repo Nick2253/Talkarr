@@ -26,9 +26,11 @@ class SyncResult:
         skipped=False,
         framerate=None,
         score=None,
+        framerate_confirmed=None,
     ):
         self.success = success
         self.framerate = framerate
+        self.framerate_confirmed = framerate_confirmed
         self.score = score
         self.offset = offset
         self.confidence = confidence
@@ -71,7 +73,9 @@ def sync_subtitle(subtitle_path, media_path, sub_type, max_offset=120):
     return result
 
 
-def run_ffsubsync(subtitle_path, media_path, output_path, max_offset=120, timeout=600):
+def run_ffsubsync(
+    subtitle_path, media_path, output_path, max_offset=120, timeout=600, fix_framerate=True
+):
     """Run ffsubsync, writing the synced subtitle to ``output_path``.
 
     The input is never modified. On failure ``output_path`` is removed.
@@ -86,6 +90,8 @@ def run_ffsubsync(subtitle_path, media_path, output_path, max_offset=120, timeou
         "--max-offset-seconds",
         str(max_offset),
     ]
+    if not fix_framerate:
+        cmd.append("--no-fix-framerate")
     log.info(
         "Running ffsubsync: %s → %s",
         os.path.basename(subtitle_path),
@@ -150,6 +156,53 @@ def measure_correction(before_path, after_path):
         scale = 1.0
     offset = my - scale * mx
     return scale, round(offset, 3)
+
+
+# A framerate change counts as confirmed when the first and last thirds of the subtitle,
+# synced on their own with offsets only, see the drift it predicts: each within this
+# many seconds of the prediction, and the drift between them within this share of it.
+DRIFT_MAX_RESIDUAL = 1.0
+DRIFT_TOLERANCE = 0.4
+DRIFT_MIN_CUES = 10
+
+
+def confirm_framerate(subtitle_path, media_path, scale, offset, scratch_dir):
+    """Whether syncing the first and last thirds separately, with offsets only, agrees
+    with ``after = scale * before + offset``. ``None`` when the check can't run.
+
+    On 13 library subtitles with ffsubsync's 23.976 <-> 24 changes, 11 agreed to within
+    0.2 s at both ends; the two that didn't (a disagreeing episode, a 25 fps guess that
+    put the end 170 s out) were wrong."""
+    from .forced import subtitles as S
+
+    try:
+        cues = S.load(subtitle_path)
+    except (OSError, ValueError):
+        return None
+    n = len(cues) // 3
+    if n < DRIFT_MIN_CUES:
+        return None
+    measured = []
+    for part in (cues[:n], cues[-n:]):
+        fd, src = tempfile.mkstemp(suffix=".srt", dir=scratch_dir)
+        os.close(fd)
+        out = src[:-4] + ".out.srt"
+        try:
+            with open(src, "w", encoding="utf-8") as f:
+                f.write(S.compose(part))
+            result = run_ffsubsync(src, media_path, out, fix_framerate=False)
+        finally:
+            _remove(src)
+            _remove(out)
+        if not result.success or result.offset is None:
+            return None
+        measured.append((sum(c.start for c in part) / n, result.offset))
+    (t1, o1), (t2, o2) = measured
+    for t, o in measured:
+        if abs((scale - 1.0) * t + offset - o) > DRIFT_MAX_RESIDUAL:
+            return False
+    implied = 1.0 + (o2 - o1) / (t2 - t1)
+    return abs(implied - scale) <= DRIFT_TOLERANCE * abs(scale - 1.0)
 
 
 def _remove(path):
