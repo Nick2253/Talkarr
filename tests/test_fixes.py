@@ -334,6 +334,29 @@ def test_catch_up_applies_what_the_mode_would_have(tmp_path, monkeypatch):
     assert db.get_job("b")["outcome"] == "pending"  # a removal: Full Auto's, not Safe Auto's
 
 
+def test_catch_up_keeps_going_while_new_subtitles_arrive(tmp_path, monkeypatch):
+    from talkarr import worker
+
+    settings.set_mode("safe_auto")
+    for job_id in ("a", "b"):
+        waiting_job(
+            tmp_path, job_id, [fixes._fix("retime", "r", "safe", {"scale": 1.0, "offset": 2.0})]
+        )
+    review.start_catch_up()
+    for job_id in ("new1", "new2"):
+        db.create_job(job_id, str(tmp_path / f"{job_id}.en.srt"), "", "en")
+    applied_before = []
+
+    def check(job):
+        applied_before.append(db.get_job("a")["outcome"] == "applied")
+        db.update_job_status(job["id"], "completed")
+
+    monkeypatch.setattr(worker, "_process_job", check)
+    worker.process_pending_jobs()
+    assert applied_before == [False, True]  # one waiting subtitle after each new one
+    assert db.get_job("b")["outcome"] == "applied"
+
+
 def test_catch_up_needs_an_automatic_mode():
     with pytest.raises(review.ReviewError):
         review.start_catch_up()
