@@ -35,24 +35,31 @@ from .validator import validate
 
 log = logging.getLogger(__name__)
 
+# Applying a waiting fix takes about a second; checking a subtitle can take minutes.
+CATCH_UP_SECONDS = 30
+
 GONE = "the subtitle was replaced or deleted before it was checked"
 
 
 def process_pending_jobs():
     """Check queued subtitles one at a time, re-reading the queue after each, so a
     re-check or a new subtitle from Bazarr doesn't wait behind a whole scan. If a
-    catch-up is running, apply one waiting subtitle's fixes after each, so a steady
-    stream of downloads doesn't hold it up."""
+    catch-up is running, spend up to ``CATCH_UP_SECONDS`` applying waiting fixes after
+    each, so a steady stream of downloads doesn't hold it up."""
     while (job := next_pending()) is not None:
         try:
             _process_job(job)
         except Exception as e:
             log.exception("Job %s failed: %s", job["id"], e)
             update_job_status(job["id"], JobStatus.FAILED, str(e))
-        if review.catch_up_running():
-            review.catch_up_step()
-    if review.catch_up_running():
-        review.catch_up_step()
+        _catch_up(CATCH_UP_SECONDS)
+    _catch_up(CATCH_UP_SECONDS)
+
+
+def _catch_up(seconds, clock=time.monotonic):
+    end = clock() + seconds
+    while review.catch_up_running() and review.catch_up_step() and clock() < end:
+        pass
 
 
 def _process_job(job):

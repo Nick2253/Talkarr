@@ -378,3 +378,14 @@ def test_catch_up_rechecks_a_changed_file_and_spaces_out_removals(tmp_path, monk
     review.catch_up_step(sleep=slept.append)
     assert db.get_job("b")["status"] == "pending"  # queued for a fresh check, not retried
     assert review.catch_up_step(sleep=slept.append) is False
+
+
+def test_catch_up_between_checks_stops_after_its_time(monkeypatch):
+    from talkarr import worker
+
+    steps = []
+    monkeypatch.setattr(review, "catch_up_running", lambda: True)
+    monkeypatch.setattr(review, "catch_up_step", lambda: steps.append(1) or True)
+    ticks = iter(range(100))
+    worker._catch_up(3, clock=lambda: next(ticks))
+    assert len(steps) == 3  # clock 0 at the start; steps end at 1, 2, 3
