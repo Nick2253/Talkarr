@@ -86,7 +86,7 @@ Bazarr hook ──POST /process──▶ jobs (SQLite) ◀── POST /bulk, or 
                                     ▼
    classify ─▶ analyse (never writes): cleaning trial, ffsubsync trial, forced verification
           ─▶ proposal: fixes with a tier (safe / confident / uncertain) + file fingerprint
-          ─▶ mode decides what is applied now: Manual none · Safe Auto safe · Full Auto safe+confident
+          ─▶ mode decides what is applied now: Manual none · Safe Auto safe+confident except removals/renames · Full Auto safe+confident
                                     ▼
    web UI (Review / Library / Activity / Settings): apply, adjust, dismiss, restore, re-check
 ```

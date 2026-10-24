@@ -44,24 +44,26 @@ OUTCOME_NAMES = {
 }
 TIER_NAMES = {
     fixes.SAFE: "Safe: Safe Auto and Full Auto apply this",
-    fixes.CONFIDENT: "Confident: Full Auto applies this",
+    fixes.CONFIDENT: "Confident: Safe Auto applies this unless it removes or renames a file; "
+    "Full Auto always does",
     fixes.UNCERTAIN: "Uncertain: waits for you in every mode",
 }
 TIER_HELP = {
     fixes.SAFE: "Corroborated and reversible. Safe Auto and Full Auto apply it on their own.",
-    fixes.CONFIDENT: "One strong check, or it removes or renames a file. Full Auto applies it.",
+    fixes.CONFIDENT: "One strong check, or it removes or renames a file. Safe Auto applies it "
+    "unless it removes or renames a file; Full Auto applies it either way.",
     fixes.UNCERTAIN: "The evidence isn't conclusive. No mode applies it without you.",
 }
 MODE_TEXT = {
     Mode.MANUAL: "Checks everything and proposes fixes. Nothing changes until you apply it.",
-    Mode.SAFE_AUTO: "Applies corroborated, reversible fixes on its own: cleaning, and forced "
-    "retimes both checks agree on. Everything else waits for you.",
+    Mode.SAFE_AUTO: "Applies every fix it is confident about (cleaning, text fixes, syncs, "
+    "retimes) but never removes or renames a file. Those, and uncertain cases, wait for you.",
     Mode.FULL_AUTO: "Applies every fix it is confident about, including syncs and removing or "
     "renaming mislabelled files as configured. Only uncertain cases wait for you.",
 }
 MODE_SENTENCE = {
     Mode.MANUAL: "Manual: nothing changes until you apply it.",
-    Mode.SAFE_AUTO: "Safe Auto: corroborated, reversible fixes are applied on their own.",
+    Mode.SAFE_AUTO: "Safe Auto: confident fixes are applied on their own; no file is removed.",
     Mode.FULL_AUTO: "Full Auto: confident fixes are applied on their own.",
 }
 FRAMERATE_OPTIONS = [

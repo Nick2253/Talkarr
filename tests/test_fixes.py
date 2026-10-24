@@ -106,15 +106,18 @@ def test_auto_indices_and_outcome():
         fixes._fix("clean", "c", "safe", {}),
         fixes._fix("sync", "s", "confident", {}),
         fixes._fix("retime", "r", "uncertain", {}),
+        fixes._fix("remove", "x", "confident", {}),
+        fixes._fix("rename", "n", "confident", {}),
     ]
     assert fixes.auto_indices("manual", f) == []
-    assert fixes.auto_indices("safe_auto", f) == [0]
-    assert fixes.auto_indices("full_auto", f) == [0, 1]
+    assert fixes.auto_indices("safe_auto", f) == [0, 1]
+    assert fixes.auto_indices("full_auto", f) == [0, 1, 3, 4]
     assert fixes.outcome([]) == "nothing"
     assert fixes.outcome(f) == "pending"
     f[0]["state"] = "applied"
     assert fixes.outcome(f) == "partial"
-    f[1]["state"] = f[2]["state"] = "dismissed"
+    for fix in f[1:]:
+        fix["state"] = "dismissed"
     assert fixes.outcome(f) == "applied"
     assert fixes.outcome([{**f[1]}]) == "dismissed"
     assert fixes.outcome([{**f[0], "state": "failed"}]) == "failed"
@@ -319,9 +322,7 @@ def test_catch_up_applies_what_the_mode_would_have(tmp_path, monkeypatch):
     settings.set_mode("safe_auto")
     retime = fixes._fix("retime", "r", "safe", {"scale": 1.0, "offset": 2.0})
     waiting_job(tmp_path, "a", [retime])
-    waiting_job(
-        tmp_path, "b", [fixes._fix("retime", "r", "confident", {"scale": 1.0, "offset": 2.0})]
-    )
+    waiting_job(tmp_path, "b", [fixes._fix("remove", "x", "confident", {})])
     assert [j["id"] for j, _ in review.waiting_for("safe_auto")] == ["a"]
 
     assert review.start_catch_up() == 1
@@ -330,7 +331,7 @@ def test_catch_up_applies_what_the_mode_would_have(tmp_path, monkeypatch):
     assert json.loads(db.get_job("a")["backup"])[0]["by"] == "safe_auto"
     worker.process_pending_jobs()  # nothing left: the catch-up ends
     assert not review.catch_up_running()
-    assert db.get_job("b")["outcome"] == "pending"  # Full Auto's, not Safe Auto's
+    assert db.get_job("b")["outcome"] == "pending"  # a removal: Full Auto's, not Safe Auto's
 
 
 def test_catch_up_needs_an_automatic_mode():

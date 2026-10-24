@@ -175,20 +175,20 @@ def test_proposal_splits_safe_and_confident(tmp_path):
     assert built[0]["params"]["mods"] == [["remove_tags", {}], ["color", {"name": "white"}]]
 
 
-def test_safe_auto_applies_safe_mods_and_the_rest_can_be_applied_later(tmp_path, monkeypatch):
+def test_mods_applied_one_after_the_other(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "SUBTITLE_MODS", "remove_tags,OCR_fixes")
     monkeypatch.setattr(Config, "SYNC_ENABLED", False)
-    settings.set_mode("safe_auto")
     path = write(tmp_path, ["<i>Hi</i>", "l'm here", *DIALOGUE])
     db.create_job("j", path, "", "en")
 
     worker.process_pending_jobs()
 
     proposal = json.loads(db.get_job("j")["proposal"])
-    assert [(f["kind"], f["tier"], f["state"]) for f in proposal["fixes"]] == [
-        ("mods", "safe", "applied"),
-        ("mods", "confident", "proposed"),
+    assert [(f["kind"], f["tier"]) for f in proposal["fixes"]] == [
+        ("mods", "safe"),
+        ("mods", "confident"),
     ]
+    review.apply_job("j", [0])
     assert S.load(path)[0].text == "Hi"
 
     review.apply_job("j")  # not refused as "changed since it was checked"

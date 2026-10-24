@@ -84,15 +84,18 @@ def test_manual_mode_proposes_and_writes_nothing(tmp_path, trial_sync):
     assert not list((tmp_path / "cache" / "tmp").iterdir())
 
 
-def test_safe_auto_applies_only_safe_fixes(tmp_path, trial_sync):
-    calls = trial_sync()
+def test_safe_auto_applies_confident_fixes_but_not_uncertain_ones(tmp_path, trial_sync):
+    calls = trial_sync(confidence=0.5)
     settings.set_mode("safe_auto")
     sub = regular(tmp_path, encoding="cp1252", ad=True)
 
     worker.process_pending_jobs()
 
     j, fixes = job()
-    assert [f["state"] for f in fixes] == ["applied", "proposed"]
+    assert [(f["tier"], f["state"]) for f in fixes] == [
+        ("safe", "applied"),
+        ("uncertain", "proposed"),
+    ]
     assert j["outcome"] == "partial"
     assert "Subtitles by SomeGroup" not in sub.read_text(encoding="utf-8")
     assert calls["inplace"] == 0

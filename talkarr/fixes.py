@@ -7,7 +7,8 @@ without asking:
 - ``safe``: reversible and corroborated (cleaning; a forced retime both checks agree on).
   Safe Auto and Full Auto apply these.
 - ``confident``: one strong check, or destructive but well-founded (removing a full
-  subtitle saved as forced). Full Auto applies these.
+  subtitle saved as forced). Safe Auto applies these except removals and renames;
+  Full Auto applies them all.
 - ``uncertain``: needs a person. No mode applies these on its own.
 
 Applying always backs up the original first, so every change can be reverted.
@@ -203,14 +204,21 @@ def _fix(kind, summary, tier, params):
 # --- policy -----------------------------------------------------------------------------
 
 
+# Removing or renaming a mislabelled subtitle: only Full Auto does it without asking.
+FILE_KINDS = ("remove", "rename")
+
+
 def auto_indices(mode, fixes):
     """Which fixes the given mode applies without asking."""
-    allowed = {
-        settings.Mode.MANUAL: set(),
-        settings.Mode.SAFE_AUTO: {SAFE},
-        settings.Mode.FULL_AUTO: {SAFE, CONFIDENT},
-    }[mode]
-    return [i for i, f in enumerate(fixes) if f["state"] == PROPOSED and f["tier"] in allowed]
+    if mode == settings.Mode.MANUAL:
+        return []
+    return [
+        i
+        for i, f in enumerate(fixes)
+        if f["state"] == PROPOSED
+        and f["tier"] in (SAFE, CONFIDENT)
+        and (mode == settings.Mode.FULL_AUTO or f["kind"] not in FILE_KINDS)
+    ]
 
 
 def outcome(fixes):
