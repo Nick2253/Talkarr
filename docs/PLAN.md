@@ -359,6 +359,26 @@ wrong ones (a Futurama episode whose ends disagree, a 25 fps guess on Star Wars 
 that put the end 170 s out) fail the same check. `confirm_framerate` now runs it for
 every framerate change; confirmed ones are confident, the rest still wait.
 
+**2026-10-26, Full Auto review** (my pass over the 716 open items, plus a Gemini review;
+Codex couldn't run: OpenAI quota).
+- Would have deleted genuine tracks: Pan's Labyrinth and A Separation (audio: 754/967
+  and 1546/1684 cues on foreign speech) were removed by the "section of a full
+  subtitle" rule, which ignored the long-track clearance. Fixed, and any text
+  mislabel against audio that places the cues on foreign speech now waits.
+- Long tracks: "not on foreign speech" alone (sign language, invented languages, an
+  English dub hide it) removes only when the track is as dense as dialogue and the
+  full subtitle doesn't call it a part; no audio and no full subtitle → review.
+- Syncs: every sync is now checked in thirds (offsets only) against the film's speech,
+  which ffsubsync saves once (`--serialize-speech`, via a symlink in the cache) so the
+  checks cost seconds. On 18 open uncertain syncs: The Good Place −89 s, Saving
+  Private Ryan −41 s, The Abyss, Grindhouse, Marry My Husband confirmed in every third;
+  wrong-release subs (Stargate, South Park, Clone Wars) and 25 fps guesses scatter by
+  tens of seconds. No case had the thirds agreeing on another offset, so there is no
+  "use the thirds' offset instead" fallback. The search window widens for PAL drift.
+- 23.976 → 24 measures as ×1.000999: framerate threshold 5e-4 (was 1e-3, which let
+  those skip the check). A framerate change known only from ffsubsync's rounded log
+  (cue counts differ) waits.
+
 ## 7. Open questions for the owner
 
 1. **Mislabelled "forced" files** (183 found): flag only, or also act — rename to `.en.srt`

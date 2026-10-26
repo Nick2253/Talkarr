@@ -143,7 +143,7 @@ must be disabled.
 | `BAZARR_BLACKLIST` | `true` | With `BAZARR_API_KEY` set: removing a subtitle Bazarr downloaded blacklists it in Bazarr (Bazarr deletes it and searches for a different one) instead of deleting the file directly |
 | `BACKUP_DIR` | `/data/backups` | Originals are copied here before any change |
 | `SYNC_MIN_OFFSET` | `0.15` | Smallest ffsubsync correction worth proposing (s) |
-| `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync confidence at which a sync counts as confident (Full Auto) |
+| `SYNC_MIN_CONFIDENCE` | `0.8` | ffsubsync offset-size heuristic; decides only for subtitles too short to confirm in thirds (every other sync is confident only when each third, synced on its own, bears it out) |
 | `CLEAN_ENABLED` / `SYNC_ENABLED` / `FORCED_VERIFY_ENABLED` | `true` | Which checks run |
 | `SUBTITLE_MODS` | – | Bazarr's text modifications, by Bazarr's names: `common`, `remove_tags`, `OCR_fixes`, `remove_HI`, `fix_uppercase`, `reverse_rtl`, `emoji`, `color(name=…)` |
 | `TALKARR_ML_URL` | – | talkarr-ml (seastone: `http://talkarr-ml:8000`); empty disables the audio check |
