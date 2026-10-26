@@ -277,6 +277,18 @@ def test_off_foreign_speech_but_sparse_or_a_part_of_the_full_subtitle_waits():
     assert report.review and "only 25% of the full subtitle" in report.reason
 
 
+def test_dense_track_partly_on_foreign_speech_is_mislabelled():
+    """The Witches: 1511 cues, 17 a minute, 48% on what the language ID calls foreign."""
+    dense = long_track(every=4.0)
+    spans = on(dense[::2])  # 50% placed would be genuine; 40% is not
+    spans = on([c for i, c in enumerate(dense) if i % 5 in (0, 1)])
+    report = verify_mod.judge_long(dense, None, fit_for(dense, spans), spans)
+    assert report.verdict == Verdict.MISLABELLED and not report.review
+    sparse = long_track(every=20.0)  # 3 a minute, 40%: may be genuine, falls through
+    spans = on([c for i, c in enumerate(sparse) if i % 5 in (0, 1)])
+    assert verify_mod.judge_long(sparse, None, fit_for(sparse, spans), spans).review
+
+
 def test_long_subset_of_the_full_subtitle_is_genuine():
     """District 9: 221 cues, all in the 1426-cue full subtitle (a sixth of it)."""
     cues = long_track()

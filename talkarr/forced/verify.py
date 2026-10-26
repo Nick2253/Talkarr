@@ -25,6 +25,12 @@ LONG_NOT_FOREIGN_SHARE = 0.25
 # Cues per minute (over the track's own span) of ordinary dialogue; genuine forced
 # tracks, even long ones, are sparser (Lion 2.8, Slumdog 3.7; Archer's full subs 19).
 FULL_DIALOGUE_DENSITY = 6.0
+# Denser than this, with under LONG_FOREIGN_SHARE of its cues on foreign speech, a
+# long track is a full subtitle. Library: every genuine long track measured 0.8-5.1 a
+# minute; full subtitles 8-22 (The Witches 17.4 with 48% on "foreign" speech: the
+# language ID calls some English foreign). Foreign-language films' tracks are dense
+# too, but most of their cues sit on foreign speech (A Separation 92%, Pan's 78%).
+DENSE_DIALOGUE_DENSITY = 8.0
 # With a reference: share of the reference's cues the "forced" sub reproduces.
 MISLABEL_REFERENCE_SHARE = 0.5
 # A usable fit must explain this share of the forced cues that found any anchor,
@@ -43,6 +49,12 @@ SECTION_SHARE = 0.5
 # Retimes beyond this offset, or with a framerate change, are plausible (other
 # release/cut) but are flagged for review rather than trusted blindly.
 REVIEW_OFFSET = 30.0
+# ... unless the text fit is this strong: so many lines, against a full subtitle synced
+# to the film, can't line up by chance (The Dictator: 23/23 lines within 1 ms, +428 s;
+# Return of the Jedi: 26/27 at the PAL ratio within 0.11 s).
+STRONG_FIT_INLIERS = 20
+STRONG_FIT_COVERAGE = 0.9
+STRONG_FIT_P90 = 0.2
 # Lines shorter than this (normalised characters) aren't counted when judging
 # whether forced lines are missing from the reference.
 SPECIFIC_LINE_CHARS = 12
@@ -115,7 +127,8 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
             share = timeline_fit.placed / n
             if share >= LONG_FOREIGN_SHARE and timeline_fit.placed > timeline_fit.chance:
                 return None
-            if share <= LONG_NOT_FOREIGN_SHARE:
+            dense = share < LONG_FOREIGN_SHARE and per_minute >= DENSE_DIALOGUE_DENSITY
+            if share <= LONG_NOT_FOREIGN_SHARE or dense:
                 not_foreign = f"{n} cues, only {share:.0%} of them on foreign speech"
         if not_foreign:
             reason = f"{not_foreign}: a full subtitle labelled as forced"
@@ -230,7 +243,12 @@ def verify(forced, reference=None, long_ok=False):
             f"offset {fit.offset:+.2f}s"
         )
         mapped = [fit.apply(c.start) for c in forced]
-        if abs(fit.offset) > REVIEW_OFFSET or fit.scale != 1.0:
+        strong = (
+            fit.inlier_count >= STRONG_FIT_INLIERS
+            and report.coverage >= STRONG_FIT_COVERAGE
+            and fit.residual_p90 <= STRONG_FIT_P90
+        )
+        if (abs(fit.offset) > REVIEW_OFFSET or fit.scale != 1.0) and not strong:
             report.review = True
             report.reason += " (large offset or framerate change: review)"
         elif min(mapped) < 0 or max(mapped) > reference[-1].end + REVIEW_OFFSET:

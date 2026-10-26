@@ -222,9 +222,18 @@ def test_section_of_full_subtitle_is_mislabelled(film):
 
 def test_large_offsets_and_framerate_changes_need_review(film):
     full, forced = film
-    assert not verify(S.transform(forced, offset=5), full).review
-    assert verify(S.transform(forced, offset=-120), full).review
-    assert verify(S.transform(forced, scale=23.976 / 25), full).review
+    few = forced[:12]  # too few lines for the fit alone to settle it
+    assert not verify(S.transform(few, offset=5), full).review
+    assert verify(S.transform(few, offset=-120), full).review
+    assert verify(S.transform(few, scale=23.976 / 25), full).review
+
+
+def test_a_strong_text_fit_needs_no_review_even_when_large(film):
+    """The Dictator: 23/23 lines within 1 ms, 428 s out."""
+    full, forced = film  # 25 lines
+    for moved in (S.transform(forced, offset=-120), S.transform(forced, scale=23.976 / 25)):
+        report = verify(moved, full)
+        assert report.verdict == Verdict.RETIMED and not report.review
 
 
 def test_full_subtitle_labelled_forced(film):
