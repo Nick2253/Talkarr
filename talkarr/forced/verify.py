@@ -95,41 +95,52 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
         report.details["density"] = round(per_minute, 1)
         return report
 
+    # Text: a genuine forced track is a small part of the full subtitle (its foreign
+    # lines); a full subtitle reproduces most of it.
+    text_share = None
+    if reference:
+        anchored = {a.forced_index for a in text_anchors(forced, reference)}
+        text_share = len(anchored) / len(reference)
+    full_density = per_minute >= FULL_DIALOGUE_DENSITY
+
     # Audio: does the track sit on foreign speech? That is what a forced track is for.
+    # Sign language, invented languages and an English dub can all hide it, so "not on
+    # foreign speech" removes on its own only when the track is as dense as dialogue
+    # and the full subtitle (if any) doesn't say it's a part of it.
     if foreign_spans is not None:
+        not_foreign = None
         if len(foreign_spans) < AUDIO_MIN_FOREIGN_SPANS:
-            return mislabelled(
-                f"{n} cues, and the film has almost no foreign speech: a full subtitle "
-                "labelled as forced",
-                review=False,
-            )
-        if timeline_fit is not None:
+            not_foreign = f"{n} cues, and the film has almost no foreign speech"
+        elif timeline_fit is not None:
             share = timeline_fit.placed / n
             if share >= LONG_FOREIGN_SHARE and timeline_fit.placed > timeline_fit.chance:
                 return None
             if share <= LONG_NOT_FOREIGN_SHARE:
+                not_foreign = f"{n} cues, only {share:.0%} of them on foreign speech"
+        if not_foreign:
+            reason = f"{not_foreign}: a full subtitle labelled as forced"
+            if text_share is not None and text_share < MISLABEL_REFERENCE_SHARE:
                 return mislabelled(
-                    f"{n} cues, only {share:.0%} of them on foreign speech: a full subtitle "
-                    "labelled as forced",
-                    review=False,
+                    f"{reason} (but only {text_share:.0%} of the full subtitle: review)", True
                 )
+            if not full_density:
+                return mislabelled(f"{reason} ({per_minute:.1f} a minute: review)", True)
+            return mislabelled(reason, review=False)
 
-    # Text: a genuine forced track is a small part of the full subtitle (its foreign
-    # lines); a full subtitle reproduces most of it.
-    if reference:
-        anchored = {a.forced_index for a in text_anchors(forced, reference)}
-        share = len(anchored) / len(reference)
-        if share < MISLABEL_REFERENCE_SHARE:
+    if text_share is not None:
+        if text_share < MISLABEL_REFERENCE_SHARE:
             return None
         return mislabelled(
-            f"{n} cues reproducing {share:.0%} of the {len(reference)}-cue full subtitle: "
-            "a full subtitle labelled as forced",
-            review=per_minute < FULL_DIALOGUE_DENSITY,  # a mostly foreign film's track is both
+            f"{n} cues reproducing {text_share:.0%} of the {len(reference)}-cue full "
+            "subtitle: a full subtitle labelled as forced",
+            review=not full_density,  # a mostly foreign film's track is both
         )
 
+    # Neither the audio nor a full subtitle says what this is: a person decides.
     return mislabelled(
-        f"{n} cues ({per_minute:.1f} a minute): a full subtitle labelled as forced",
-        review=per_minute < FULL_DIALOGUE_DENSITY,
+        f"{n} cues ({per_minute:.1f} a minute): probably a full subtitle labelled as "
+        "forced (no audio or full-subtitle evidence: review)",
+        review=True,
     )
 
 
@@ -195,7 +206,14 @@ def verify(forced, reference=None, long_ok=False):
 
     if fit is not None and fit.inlier_count >= MIN_INLIERS and report.coverage >= MIN_COVERAGE:
         section = _section_share(fit, reference)
-        if n >= SECTION_MIN_CUES and section is not None and section >= SECTION_SHARE:
+        # (Not for a long track the audio cleared: a mostly foreign film's forced track
+        # reproduces much of the full subtitle, e.g. Pan's Labyrinth.)
+        if (
+            not long_ok
+            and n >= SECTION_MIN_CUES
+            and section is not None
+            and section >= SECTION_SHARE
+        ):
             report.verdict = Verdict.MISLABELLED
             report.reason = (
                 f"{n} cues reproducing {section:.0%} of the full subtitle within their time "

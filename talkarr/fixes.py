@@ -26,6 +26,7 @@ from .fileio import atomic_write_text
 from .forced import subtitles as S
 from .forced.fit import SCALES
 from .media import english_forced_stem
+from .sync import changes_framerate
 
 SAFE, CONFIDENT, UNCERTAIN = "safe", "confident", "uncertain"
 PROPOSED, APPLIED, DISMISSED, FAILED = "proposed", "applied", "dismissed", "failed"
@@ -118,11 +119,17 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
     if sync is not None and sub_type != SubType.FORCED and getattr(sync, "success", False):
         offset = sync.offset or 0.0
         framerate = getattr(sync, "framerate", None) or 1.0
-        if abs(offset) >= Config.SYNC_MIN_OFFSET or abs(framerate - 1.0) > 1e-3:
+        if abs(offset) >= Config.SYNC_MIN_OFFSET or changes_framerate(framerate):
             confidence = sync.confidence or 0.0
-            tier = CONFIDENT if confidence >= Config.SYNC_MIN_CONFIDENCE else UNCERTAIN
-            if abs(framerate - 1.0) > 1e-3 and not getattr(sync, "framerate_confirmed", None):
-                tier = UNCERTAIN  # both ends synced on their own didn't bear it out
+            confirmed = getattr(sync, "confirmed", None)
+            if confirmed is None:
+                # Too short to check in parts: ffsubsync's offset-size heuristic.
+                ok = confidence >= Config.SYNC_MIN_CONFIDENCE and not changes_framerate(framerate)
+            else:
+                ok = confirmed
+            if changes_framerate(framerate) and not getattr(sync, "measured", True):
+                ok = False  # only ffsubsync's rounded log: up to 1.5 s off by the end
+            tier = CONFIDENT if ok else UNCERTAIN
             summary = "Sync " + retime_summary(framerate, offset).removeprefix("Retime ")
             fixes.append(
                 _fix(
@@ -133,7 +140,7 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
                         "offset": offset,
                         "framerate": framerate,
                         "confidence": confidence,
-                        "framerate_confirmed": getattr(sync, "framerate_confirmed", None),
+                        "confirmed": confirmed,
                     },
                 )
             )

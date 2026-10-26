@@ -216,6 +216,8 @@ def test_section_of_full_subtitle_is_mislabelled(film):
     report = verify(section, full)
     assert report.verdict == Verdict.MISLABELLED
     assert "section" in report.reason
+    # A long track the audio already cleared (a mostly foreign film's) is kept.
+    assert verify(section, full, long_ok=True).verdict == Verdict.IN_SYNC
 
 
 def test_large_offsets_and_framerate_changes_need_review(film):

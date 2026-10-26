@@ -26,11 +26,15 @@ class SyncResult:
         skipped=False,
         framerate=None,
         score=None,
-        framerate_confirmed=None,
+        confirmed=None,
+        measured=False,
     ):
         self.success = success
         self.framerate = framerate
-        self.framerate_confirmed = framerate_confirmed
+        # Whether syncing parts of the subtitle on their own bore the correction out
+        # (None: not checked); whether it was measured from the output, not the log.
+        self.confirmed = confirmed
+        self.measured = measured
         self.score = score
         self.offset = offset
         self.confidence = confidence
@@ -73,12 +77,28 @@ def sync_subtitle(subtitle_path, media_path, sub_type, max_offset=120):
     return result
 
 
+# 23.976 -> 24 is x1.001; ffsubsync's output measures it as 1.000999 or so.
+FRAMERATE_CHANGE = 5e-4
+
+
+def changes_framerate(scale):
+    return scale is not None and abs(scale - 1.0) > FRAMERATE_CHANGE
+
+
 def run_ffsubsync(
-    subtitle_path, media_path, output_path, max_offset=120, timeout=600, fix_framerate=True
+    subtitle_path,
+    media_path,
+    output_path,
+    max_offset=120,
+    timeout=600,
+    fix_framerate=True,
+    serialize_speech=False,
 ):
     """Run ffsubsync, writing the synced subtitle to ``output_path``.
 
     The input is never modified. On failure ``output_path`` is removed.
+    ``serialize_speech`` saves the reference's speech next to ``media_path`` (as
+    ``.npz``, which later runs can take as their reference instead of the video).
     """
     cmd = [
         "ffsubsync",
@@ -92,6 +112,8 @@ def run_ffsubsync(
     ]
     if not fix_framerate:
         cmd.append("--no-fix-framerate")
+    if serialize_speech:
+        cmd.append("--serialize-speech")
     log.info(
         "Running ffsubsync: %s → %s",
         os.path.basename(subtitle_path),
@@ -125,6 +147,7 @@ def run_ffsubsync(
     if measured is not None:
         framerate, offset = measured
     return SyncResult(
+        measured=measured is not None,
         success=True,
         offset=offset,
         confidence=_estimate_confidence(offset, framerate),
@@ -158,21 +181,24 @@ def measure_correction(before_path, after_path):
     return scale, round(offset, 3)
 
 
-# A framerate change counts as confirmed when the first and last thirds of the subtitle,
-# synced on their own with offsets only, see the drift it predicts: each within this
-# many seconds of the prediction, and the drift between them within this share of it.
-DRIFT_MAX_RESIDUAL = 1.0
+# A sync counts as confirmed when each third of the subtitle, synced on its own with
+# offsets only, lands within this many seconds of where the correction puts it; with a
+# framerate change, the drift between the first and last thirds must also be within
+# this share of the one predicted.
+CONFIRM_MAX_RESIDUAL = 1.0
 DRIFT_TOLERANCE = 0.4
-DRIFT_MIN_CUES = 10
+CONFIRM_MIN_CUES = 10
 
 
-def confirm_framerate(subtitle_path, media_path, scale, offset, scratch_dir):
-    """Whether syncing the first and last thirds separately, with offsets only, agrees
+def confirm_sync(subtitle_path, reference, scale, offset, scratch_dir):
+    """Whether the thirds of the subtitle, each synced on its own (offsets only), agree
     with ``after = scale * before + offset``. ``None`` when the check can't run.
 
-    On 13 library subtitles with ffsubsync's 23.976 <-> 24 changes, 11 agreed to within
-    0.2 s at both ends; the two that didn't (a disagreeing episode, a 25 fps guess that
-    put the end 170 s out) were wrong."""
+    ``reference``: the video, or the ``.npz`` speech ffsubsync saved from it (cheap).
+
+    Library checks: real 23.976 <-> 24 changes and large offsets (The Good Place -89 s,
+    Saving Private Ryan -41 s) agree within 0.4 s in every third; wrong-release
+    subtitles and wrong framerate guesses scatter by tens of seconds."""
     from .forced import subtitles as S
 
     try:
@@ -180,28 +206,33 @@ def confirm_framerate(subtitle_path, media_path, scale, offset, scratch_dir):
     except (OSError, ValueError):
         return None
     n = len(cues) // 3
-    if n < DRIFT_MIN_CUES:
+    if n < CONFIRM_MIN_CUES:
         return None
+    parts = (cues[:n], cues[n : 2 * n], cues[-n:])
+    predicted = [(scale - 1.0) * (sum(c.start for c in p) / n) + offset for p in parts]
+    # A 25 -> 23.976 change moves the end of a film by minutes.
+    window = max(120, int(max(abs(p) for p in predicted)) + 30)
     measured = []
-    for part in (cues[:n], cues[-n:]):
+    for part in parts:
         fd, src = tempfile.mkstemp(suffix=".srt", dir=scratch_dir)
         os.close(fd)
         out = src[:-4] + ".out.srt"
         try:
             with open(src, "w", encoding="utf-8") as f:
                 f.write(S.compose(part))
-            result = run_ffsubsync(src, media_path, out, fix_framerate=False)
+            result = run_ffsubsync(src, reference, out, max_offset=window, fix_framerate=False)
         finally:
             _remove(src)
             _remove(out)
         if not result.success or result.offset is None:
             return None
-        measured.append((sum(c.start for c in part) / n, result.offset))
-    (t1, o1), (t2, o2) = measured
-    for t, o in measured:
-        if abs((scale - 1.0) * t + offset - o) > DRIFT_MAX_RESIDUAL:
-            return False
-    implied = 1.0 + (o2 - o1) / (t2 - t1)
+        measured.append(result.offset)
+    if any(abs(p - m) > CONFIRM_MAX_RESIDUAL for p, m in zip(predicted, measured, strict=True)):
+        return False
+    if not changes_framerate(scale):
+        return True
+    t1, t3 = (sum(c.start for c in p) / n for p in (parts[0], parts[2]))
+    implied = 1.0 + (measured[2] - measured[0]) / (t3 - t1)
     return abs(implied - scale) <= DRIFT_TOLERANCE * abs(scale - 1.0)
 
 

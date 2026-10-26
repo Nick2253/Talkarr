@@ -44,6 +44,7 @@ def trial_sync(monkeypatch):
             return SimpleNamespace(success=True, offset=offset, confidence=confidence)
 
         monkeypatch.setattr(worker, "run_ffsubsync", run)
+        monkeypatch.setattr(worker, "confirm_sync", lambda *a: None)  # too short to check
         monkeypatch.setattr("talkarr.sync.sync_subtitle", inplace)
         return calls
 
@@ -119,22 +120,22 @@ def test_full_auto_applies_confident_fixes(tmp_path, trial_sync):
 
 
 @pytest.mark.parametrize(("confirmed", "tier"), [(True, "confident"), (False, "uncertain")])
-def test_framerate_change_is_checked_at_both_ends(
-    tmp_path, trial_sync, monkeypatch, confirmed, tier
-):
+def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, confirmed, tier):
     trial_sync(framerate=24 / 23.976)
     checked = []
 
-    def confirm(sub, media, scale, offset, scratch):
-        checked.append((scale, offset))
+    def confirm(sub, reference, scale, offset, scratch):
+        checked.append((reference.endswith(".mkv"), scale, offset))
         return confirmed
 
-    monkeypatch.setattr(worker, "confirm_framerate", confirm)
+    monkeypatch.setattr(worker, "confirm_sync", confirm)
     regular(tmp_path)
     worker.process_pending_jobs()
     _, fixes = job()
-    assert checked == [(24 / 23.976, 1.25)]
+    # (the fake ffsubsync saves no speech, so the check falls back to the video link)
+    assert checked == [(True, 24 / 23.976, 1.25)]
     assert [(f["kind"], f["tier"]) for f in fixes] == [("sync", tier)]
+    assert os.listdir(os.path.join(Config.CACHE_DIR, "tmp")) == []
 
 
 def test_low_confidence_sync_is_uncertain_and_waits(tmp_path, trial_sync):
@@ -266,6 +267,8 @@ def test_mislabelled_forced_sub(tmp_path, forced_film, monkeypatch, action, full
         for p in forced.parent.glob("*.en.srt"):
             p.unlink()
     forced.write_text(make_srt([f"dialogue line {i}" for i in range(300)]))
+    for p in forced.parent.glob("*.en.srt"):
+        p.write_text(forced.read_text())  # the full subtitle it is a copy of
     settings.set_mode("full_auto")
 
     queue(forced)

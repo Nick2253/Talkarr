@@ -30,7 +30,7 @@ from .db import (
 )
 from .forced.service import verify_forced
 from .media import find_video_for_subtitle
-from .sync import confirm_framerate, run_ffsubsync
+from .sync import confirm_sync, run_ffsubsync
 from .validator import validate
 
 log = logging.getLogger(__name__)
@@ -153,16 +153,27 @@ def _trial_sync(subtitle_path, media_path):
     os.makedirs(scratch, exist_ok=True)
     fd, out = tempfile.mkstemp(suffix=".srt", dir=scratch)
     os.close(fd)
+    # ffsubsync saves the film's speech next to its reference: link the video into the
+    # scratch folder so that lands there, not in the library, and the checks reuse it.
+    stem = out[:-4] + ".ref"
+    link = stem + os.path.splitext(media_path)[1]
+    speech = stem + ".npz"
     try:
-        result = run_ffsubsync(subtitle_path, media_path, out)
-        if result.success and abs((result.framerate or 1.0) - 1.0) > 1e-3:
-            result.framerate_confirmed = confirm_framerate(
-                subtitle_path, media_path, result.framerate, result.offset or 0.0, scratch
+        os.symlink(os.path.abspath(media_path), link)
+        result = run_ffsubsync(subtitle_path, link, out, serialize_speech=True)
+        if result.success:
+            result.confirmed = confirm_sync(
+                subtitle_path,
+                speech if os.path.isfile(speech) else link,
+                result.framerate or 1.0,
+                result.offset or 0.0,
+                scratch,
             )
         return result
     finally:
-        if os.path.exists(out):
-            os.unlink(out)
+        for path in (out, link, speech):
+            if os.path.lexists(path):
+                os.unlink(path)
 
 
 def start_worker():

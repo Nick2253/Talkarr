@@ -27,6 +27,13 @@ def test_mislabelled_wins():
     assert d.verdict == Verdict.MISLABELLED and d.source == "audio"
 
 
+def test_text_mislabel_against_audio_on_foreign_speech_waits():
+    """A long foreign scene's forced track reproduces its part of the full subtitle."""
+    d = combine(report("mislabelled"), report("in_sync"))
+    assert d.verdict == Verdict.MISLABELLED and d.review
+    assert not combine(report("mislabelled"), report("unverifiable")).review
+
+
 def test_text_and_audio_agree():
     d = combine(report("retimed", offset=2.0), report("retimed", offset=2.4))
     assert d.verdict == Verdict.RETIMED and not d.review
@@ -243,7 +250,7 @@ def test_long_track_on_foreign_speech_is_genuine():
 
 
 def test_long_track_off_foreign_speech_is_mislabelled():
-    cues = long_track()
+    cues = long_track(every=4.0)  # 15 a minute: as dense as dialogue
     spans = on(cues[:20])  # a little foreign speech, most cues elsewhere
     report = verify_mod.judge_long(cues, None, fit_for(cues, spans), spans)
     assert report.verdict == Verdict.MISLABELLED and not report.review
@@ -251,9 +258,23 @@ def test_long_track_off_foreign_speech_is_mislabelled():
 
 
 def test_film_without_foreign_speech():
-    cues = long_track()
+    cues = long_track(every=4.0)
     report = verify_mod.judge_long(cues, None, fit_for(cues, []), [])
     assert report.verdict == Verdict.MISLABELLED and not report.review
+
+
+def test_off_foreign_speech_but_sparse_or_a_part_of_the_full_subtitle_waits():
+    """Sign language, an invented language or an English dub hide the foreign speech."""
+    sparse = long_track()  # 3 a minute
+    assert verify_mod.judge_long(sparse, None, fit_for(sparse, []), []).review
+    dense = long_track(every=4.0)
+    reference = sorted(
+        dense
+        + [S.Cue(c.start + 1, c.end + 1, f"other words {i}") for i, c in enumerate(dense * 3)],
+        key=lambda c: c.start,
+    )
+    report = verify_mod.judge_long(dense, reference, fit_for(dense, []), [])
+    assert report.review and "only 25% of the full subtitle" in report.reason
 
 
 def test_long_subset_of_the_full_subtitle_is_genuine():
@@ -283,8 +304,8 @@ def test_copy_of_a_sparse_full_subtitle_waits_for_a_person():
     assert not verify_mod.verify(dense[:60], dense[:100]).review
 
 
-def test_long_track_without_evidence_by_density():
-    assert not verify_mod.judge_long(long_track(every=4.0)).review
+def test_long_track_without_evidence_waits_for_a_person():
+    assert verify_mod.judge_long(long_track(every=4.0)).review
     assert verify_mod.judge_long(long_track(every=20.0)).review
 
 
@@ -314,7 +335,8 @@ def test_long_track_skips_the_reference_sync(tmp_path, monkeypatch):
     monkeypatch.setattr(sources, "synced_reference", must_not_run)
     monkeypatch.setattr(sources, "film_regions", lambda *a: ([], {"ok": True, "duration": 7200.0}))
     decision, details = service.verify_forced(str(forced), "/x.mkv", str(tmp_path), ml_url="x")
-    assert decision.verdict == Verdict.MISLABELLED and not decision.review
+    # None of its lines are in the full subtitle, so the audio alone doesn't remove it.
+    assert decision.verdict == Verdict.MISLABELLED and decision.review
     assert len(details["ribbon"]["cues"]) == 250
 
 

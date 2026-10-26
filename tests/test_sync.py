@@ -164,40 +164,68 @@ def test_measure_correction_is_exact_where_the_log_is_rounded(tmp_path):
     assert sync.measure_correction(str(before), str(after)) is None
 
 
+# 90 cues 17 s apart: the thirds' cues average 256.5 s, 766.5 s and 1276.5 s.
+X1001 = (1.001, 0.36 - 0.001 * 256.5)  # predicts +0.36, +0.87, +1.38
+
+
 @pytest.mark.parametrize(
-    ("ends", "expected"),
+    ("correction", "parts", "expected"),
     [
-        ((0.36, 1.18), True),  # Futurama S05E04: both ends where x1.001 +0.13 puts them
-        ((0.63, 0.11), False),  # S03E03: the ends disagree with the drift
-        ((0.30, 0.30), False),  # no drift at all
-        (None, None),  # a check sync failed
+        (X1001, (0.36, 0.85, 1.18), True),  # Futurama S05E04
+        (X1001, (0.63, 0.5, 0.11), False),  # S03E03: the ends disagree with the drift
+        (X1001, (0.30, 0.30, 0.30), False),  # no drift at all
+        ((1.0, -89.09), (-89.09, -89.09, -89.09), True),  # The Good Place
+        ((1.0, -119.98), (77.65, -119.98, -119.91), False),  # South Park: another cut
+        (X1001, None, None),  # a check sync failed
     ],
 )
-def test_confirm_framerate(tmp_path, monkeypatch, ends, expected):
+def test_confirm_sync(tmp_path, monkeypatch, correction, parts, expected):
     from tests.conftest import make_srt
 
     sub = tmp_path / "Show.en.srt"
     sub.write_text(make_srt([f"line {i}" for i in range(90)], start=10.0, gap=15.0))
-    offsets = iter(ends or ())
+    offsets = iter(parts or ())
     calls = []
 
-    def run(src, media, out, fix_framerate=True, **_):
-        calls.append(fix_framerate)
+    def run(src, reference, out, fix_framerate=True, max_offset=120, **_):
+        calls.append((reference, fix_framerate, max_offset))
         o = next(offsets, None)
         return sync.SyncResult(success=o is not None, offset=o)
 
     monkeypatch.setattr(sync, "run_ffsubsync", run)
-    # the thirds' cues average 256.5 s and 1276.5 s: this predicts +0.36 and +1.38
-    scale = 1.001
-    offset = 0.36 - (scale - 1) * 256.5
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    assert sync.confirm_framerate(str(sub), "v.mkv", scale, offset, str(scratch)) is expected
-    assert set(calls) == {False} and len(calls) == (2 if ends else 1)
+    scale, offset = correction
+    assert sync.confirm_sync(str(sub), "film.npz", scale, offset, str(scratch)) is expected
+    assert {c[:2] for c in calls} == {("film.npz", False)}
+    assert len(calls) == (3 if parts else 1)
     assert os.listdir(scratch) == []
+
+
+def test_confirm_sync_searches_as_far_as_a_framerate_change_reaches(tmp_path, monkeypatch):
+    from tests.conftest import make_srt
+
+    sub = tmp_path / "Film.en.srt"
+    sub.write_text(make_srt([f"line {i}" for i in range(300)], start=10.0, gap=20.0))
+    windows = []
+
+    def run(src, reference, out, max_offset=120, **_):
+        windows.append(max_offset)
+        return sync.SyncResult(success=False)
+
+    monkeypatch.setattr(sync, "run_ffsubsync", run)
+    sync.confirm_sync(str(sub), "f.npz", 23.976 / 25, 0.0, str(tmp_path))
+    assert windows[0] > 250  # the last third sits ~230 s off at 25 -> 23.976
 
 
 def test_no_fix_framerate_flag(files, fake_ffsubsync, tmp_path):
     calls = fake_ffsubsync()
     sync.run_ffsubsync(files[0], files[1], str(tmp_path / "o.srt"), fix_framerate=False)
     assert "--no-fix-framerate" in calls[0]
+
+
+@pytest.mark.parametrize(
+    ("scale", "changed"), [(1.0, False), (1.0001, False), (1.000999, True), (0.959, True)]
+)
+def test_changes_framerate(scale, changed):
+    assert sync.changes_framerate(scale) is changed

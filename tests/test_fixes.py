@@ -87,18 +87,29 @@ def test_build_framerate_only_sync():
 
 
 @pytest.mark.parametrize(
-    ("confirmed", "tier"), [(None, "uncertain"), (False, "uncertain"), (True, "confident")]
+    ("offset", "framerate", "confidence", "confirmed", "measured", "tier"),
+    [
+        (0.3, 1.0, 1.0, True, True, "confident"),
+        (0.3, 1.0, 1.0, False, True, "uncertain"),  # the thirds disagree
+        (-89.0, 1.0, 0.5, True, True, "confident"),  # a large offset all thirds bear out
+        (0.3, 1.0, 1.0, None, True, "confident"),  # too short to check: the heuristic
+        (40.0, 1.0, 0.5, None, True, "uncertain"),
+        (0.3, 24 / 23.976, 1.0, None, True, "uncertain"),
+        (0.3, 24 / 23.976, 1.0, True, True, "confident"),
+        (0.3, 24 / 23.976, 1.0, True, False, "uncertain"),  # only the rounded log
+    ],
 )
-def test_framerate_sync_is_confident_only_when_confirmed(confirmed, tier):
+def test_sync_tier(offset, framerate, confidence, confirmed, measured, tier):
     sync = SimpleNamespace(
         success=True,
-        offset=0.3,
-        confidence=1.0,
-        framerate=24 / 23.976,
-        framerate_confirmed=confirmed,
+        offset=offset,
+        confidence=confidence,
+        framerate=framerate,
+        confirmed=confirmed,
+        measured=measured,
     )
     (fix,) = fixes.build("/m/a.en.srt", "regular", sync=sync)
-    assert fix["tier"] == tier and fix["params"]["framerate_confirmed"] is confirmed
+    assert fix["tier"] == tier and fix["params"]["confirmed"] is confirmed
 
 
 def test_auto_indices_and_outcome():

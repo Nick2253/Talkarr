@@ -1,6 +1,7 @@
 """Combine the text-path and audio-path reports into one verdict.
 
-- Either path finding a full subtitle labelled as forced wins: that's conclusive.
+- Either path finding a full subtitle labelled as forced wins, unless the audio finds
+  the cues on foreign speech: then a person decides.
 - The text path (full subtitle synced to the audio) is the more precise timing
   reference, so when it is conclusive it leads; the audio path confirms it, or the
   disagreement is flagged for review.
@@ -38,7 +39,14 @@ def combine(text=None, audio=None):
     """``text``/``audio`` are ``verify.Report`` objects (or ``None`` if not run)."""
     for name, report in (("text", text), ("audio", audio)):
         if report is not None and report.verdict == Verdict.MISLABELLED:
-            return _from(report, name)
+            decision = _from(report, name)
+            other = audio if name == "text" else None
+            if other is not None and other.verdict in CONCLUSIVE and not other.review:
+                # The text says "full subtitle", but its cues sit on foreign speech (a
+                # long foreign scene reproduces its part of the full subtitle).
+                decision.review = True
+                decision.reason += f"; but the audio places it on foreign speech ({other.reason})"
+            return decision
 
     t_ok = text is not None and text.verdict in CONCLUSIVE
     a_ok = audio is not None and audio.verdict in CONCLUSIVE
