@@ -44,7 +44,7 @@ def trial_sync(monkeypatch):
             return SimpleNamespace(success=True, offset=offset, confidence=confidence)
 
         monkeypatch.setattr(worker, "run_ffsubsync", run)
-        monkeypatch.setattr(worker, "confirm_sync", lambda *a: None)  # too short to check
+        monkeypatch.setattr(worker, "measure_parts", lambda *a: None)  # too short to check
         monkeypatch.setattr("talkarr.sync.sync_subtitle", inplace)
         return calls
 
@@ -119,22 +119,36 @@ def test_full_auto_applies_confident_fixes(tmp_path, trial_sync):
     assert S.load(sub)[0].start == pytest.approx(before[1].start + 1.25)  # ad cue gone
 
 
-@pytest.mark.parametrize(("confirmed", "tier"), [(True, "confident"), (False, "uncertain")])
-def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, confirmed, tier):
-    trial_sync(framerate=24 / 23.976)
-    checked = []
+T = (300.0, 900.0, 1500.0)  # the thirds' mean cue starts
 
-    def confirm(sub, reference, scale, offset, scratch):
-        checked.append((reference.endswith(".mkv"), scale, offset))
-        return confirmed
 
-    monkeypatch.setattr(worker, "confirm_sync", confirm)
+@pytest.mark.parametrize(
+    ("measured", "expected"),
+    [
+        ((1.55, 2.15, 2.75), [("Sync 23.976 → 24 fps, +1.25 s", "confident")]),  # bears it out
+        ((9.0, -40.0, 3.0), [("Sync 23.976 → 24 fps, +1.25 s", "uncertain")]),  # scatter
+        ((0.05, -0.1, 0.0), []),  # ffsubsync's guess is noise: already in sync
+        ((-2.0, -2.2, -1.9), [("Sync −2.03 s", "confident")]),  # the offset they share
+    ],
+)
+def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, measured, expected):
+    scale = 24 / 23.976
+    trial_sync(framerate=scale)
+    calls = []
+
+    def parts(sub, reference, s, offset, scratch):
+        calls.append((reference.endswith(".mkv"), s, offset))
+        return [(t, (s - 1) * t + offset, m) for t, m in zip(T, measured, strict=True)]
+
+    monkeypatch.setattr(worker, "measure_parts", parts)
     regular(tmp_path)
     worker.process_pending_jobs()
     _, fixes = job()
     # (the fake ffsubsync saves no speech, so the check falls back to the video link)
-    assert checked == [(True, 24 / 23.976, 1.25)]
-    assert [(f["kind"], f["tier"]) for f in fixes] == [("sync", tier)]
+    assert calls == [(True, scale, 1.25)]
+    assert [(f["summary"], f["tier"]) for f in fixes] == expected
+    if fixes:
+        assert fixes[0]["params"]["parts"] == list(measured)
     assert os.listdir(os.path.join(Config.CACHE_DIR, "tmp")) == []
 
 

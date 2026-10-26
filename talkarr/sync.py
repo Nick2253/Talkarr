@@ -28,6 +28,7 @@ class SyncResult:
         score=None,
         confirmed=None,
         measured=False,
+        parts=None,
     ):
         self.success = success
         self.framerate = framerate
@@ -35,6 +36,7 @@ class SyncResult:
         # (None: not checked); whether it was measured from the output, not the log.
         self.confirmed = confirmed
         self.measured = measured
+        self.parts = parts  # offsets the thirds measured on their own
         self.score = score
         self.offset = offset
         self.confidence = confidence
@@ -190,6 +192,11 @@ DRIFT_TOLERANCE = 0.4
 CONFIRM_MIN_CUES = 10
 
 
+# When the thirds disagree with ffsubsync but agree with each other this closely, their
+# shared offset is the correction (near zero: the subtitle is already in sync).
+PARTS_AGREE = 0.5
+
+
 def confirm_sync(subtitle_path, reference, scale, offset, scratch_dir):
     """Whether the thirds of the subtitle, each synced on its own (offsets only), agree
     with ``after = scale * before + offset``. ``None`` when the check can't run.
@@ -199,6 +206,12 @@ def confirm_sync(subtitle_path, reference, scale, offset, scratch_dir):
     Library checks: real 23.976 <-> 24 changes and large offsets (The Good Place -89 s,
     Saving Private Ryan -41 s) agree within 0.4 s in every third; wrong-release
     subtitles and wrong framerate guesses scatter by tens of seconds."""
+    return parts_confirm(measure_parts(subtitle_path, reference, scale, offset, scratch_dir), scale)
+
+
+def measure_parts(subtitle_path, reference, scale, offset, scratch_dir):
+    """``[(mean cue start, predicted offset, measured offset)]`` for the subtitle's
+    thirds, each synced on its own with offsets only; ``None`` if that can't be done."""
     from .forced import subtitles as S
 
     try:
@@ -208,12 +221,13 @@ def confirm_sync(subtitle_path, reference, scale, offset, scratch_dir):
     n = len(cues) // 3
     if n < CONFIRM_MIN_CUES:
         return None
-    parts = (cues[:n], cues[n : 2 * n], cues[-n:])
-    predicted = [(scale - 1.0) * (sum(c.start for c in p) / n) + offset for p in parts]
+    thirds = (cues[:n], cues[n : 2 * n], cues[-n:])
+    times = [sum(c.start for c in p) / n for p in thirds]
+    predicted = [(scale - 1.0) * t + offset for t in times]
     # A 25 -> 23.976 change moves the end of a film by minutes.
     window = max(120, int(max(abs(p) for p in predicted)) + 30)
     measured = []
-    for part in parts:
+    for part in thirds:
         fd, src = tempfile.mkstemp(suffix=".srt", dir=scratch_dir)
         os.close(fd)
         out = src[:-4] + ".out.srt"
@@ -227,13 +241,27 @@ def confirm_sync(subtitle_path, reference, scale, offset, scratch_dir):
         if not result.success or result.offset is None:
             return None
         measured.append(result.offset)
-    if any(abs(p - m) > CONFIRM_MAX_RESIDUAL for p, m in zip(predicted, measured, strict=True)):
+    return list(zip(times, predicted, measured, strict=True))
+
+
+def parts_confirm(parts, scale):
+    if parts is None:
+        return None
+    if any(abs(p - m) > CONFIRM_MAX_RESIDUAL for _, p, m in parts):
         return False
     if not changes_framerate(scale):
         return True
-    t1, t3 = (sum(c.start for c in p) / n for p in (parts[0], parts[2]))
-    implied = 1.0 + (measured[2] - measured[0]) / (t3 - t1)
+    (t1, _, m1), (t3, _, m3) = parts[0], parts[2]
+    implied = 1.0 + (m3 - m1) / (t3 - t1)
     return abs(implied - scale) <= DRIFT_TOLERANCE * abs(scale - 1.0)
+
+
+def parts_offset(parts):
+    """The offset the thirds share, if they agree with each other; else ``None``."""
+    measured = [m for _, _, m in parts or ()]
+    if not measured or max(measured) - min(measured) > PARTS_AGREE:
+        return None
+    return round(sum(measured) / len(measured), 3)
 
 
 def _remove(path):

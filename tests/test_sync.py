@@ -229,3 +229,9 @@ def test_no_fix_framerate_flag(files, fake_ffsubsync, tmp_path):
 )
 def test_changes_framerate(scale, changed):
     assert sync.changes_framerate(scale) is changed
+
+
+def test_parts_offset():
+    assert sync.parts_offset([(0, 0, -2.0), (0, 0, -2.2), (0, 0, -1.9)]) == -2.033
+    assert sync.parts_offset([(0, 0, 0.0), (0, 0, 0.7), (0, 0, 0.1)]) is None
+    assert sync.parts_offset(None) is None

@@ -141,6 +141,7 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
                         "framerate": framerate,
                         "confidence": confidence,
                         "confirmed": confirmed,
+                        "parts": getattr(sync, "parts", None),
                     },
                 )
             )
