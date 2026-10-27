@@ -378,6 +378,19 @@ Codex couldn't run: OpenAI quota).
 - 23.976 → 24 measures as ×1.000999: framerate threshold 5e-4 (was 1e-3, which let
   those skip the check). A framerate change known only from ffsubsync's rounded log
   (cue counts differ) waits.
+- Then, processing every open item as Full Auto would: long tracks at 8+ cues a minute
+  with under half on foreign speech are full subtitles (genuine long tracks measured
+  0.8-5.1 a minute; full ones 8-22; the chance-level comparison doesn't separate them:
+  Lion sits at 0.93x chance, Titanic's full subtitle at 1.8x). A dense track that
+  matches little of the full subtitle is other wording, not a part of it. A text
+  retime with 20+ lines, 90% coverage, 0.2 s precision needs no review (The Dictator
+  +428 s, Return of the Jedi at the PAL ratio). The thirds' own offsets are kept; when
+  they agree with each other their offset is used. A fix Bazarr didn't answer stays
+  proposed and is retried after 15 minutes (it used to fail for good); timeout 90 s.
+- Left for the owner: ~320 regular syncs whose thirds scatter (the subtitle doesn't
+  match the video: mostly TV from other releases) and a few ambiguous forced tracks
+  (Band of Brothers, The Last Samurai, Star Wars' retime). Lawrence of Arabia's full
+  subtitle is kept as genuine (61% of its cues on speech the language ID calls foreign).
 
 ## 7. Open questions for the owner
 
