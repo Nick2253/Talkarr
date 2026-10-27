@@ -256,9 +256,11 @@ def parts_confirm(parts, scale):
     return abs(implied - scale) <= DRIFT_TOLERANCE * abs(scale - 1.0)
 
 
-# Every third this far out on its own, with no one correction between them: the
-# subtitle doesn't match the video (another release or cut).
+# Two of the three thirds this far out on their own, with no one correction between
+# them: the subtitle doesn't match the video (another release or cut). One third in
+# sync isn't enough (30 Rock: +0.9 s, +118 s, -68 s); two are (a different cold open).
 MISMATCH_MIN_OFFSET = 1.0
+MISMATCH_MIN_PARTS = 2
 
 
 def parts_scale(parts):
@@ -280,7 +282,8 @@ def parts_scale(parts):
 
 
 def parts_mismatch(parts):
-    return bool(parts) and all(abs(m) > MISMATCH_MIN_OFFSET for _, _, m in parts)
+    out = sum(abs(m) > MISMATCH_MIN_OFFSET for _, _, m in parts or ())
+    return out >= MISMATCH_MIN_PARTS
 
 
 def parts_offset(parts):

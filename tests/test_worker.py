@@ -160,8 +160,12 @@ def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, measu
         ((9.0, -40.0, 3.0), [("Replace: doesn't match this video", "confident", "remove")]),
         (
             (0.2, -40.0, 3.0),
+            [("Replace: doesn't match this video", "confident", "remove")],
+        ),  # in sync for one third only
+        (
+            (0.2, -40.0, 0.5),
             [("Sync 23.976 → 24 fps, +1.25 s", "uncertain", "sync")],
-        ),  # in sync once
+        ),  # in sync for two thirds: kept
     ],
 )
 def test_a_subtitle_out_everywhere_is_replaced_through_bazarr(
