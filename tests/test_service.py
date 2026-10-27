@@ -263,18 +263,21 @@ def test_film_without_foreign_speech():
     assert report.verdict == Verdict.MISLABELLED and not report.review
 
 
+def reference_for(cues):
+    """A full subtitle the track is a quarter of."""
+    others = [S.Cue(c.start + 1, c.end + 1, f"other words {i}") for i, c in enumerate(cues * 3)]
+    return sorted(cues + others, key=lambda c: c.start)
+
+
 def test_off_foreign_speech_but_sparse_or_a_part_of_the_full_subtitle_waits():
     """Sign language, an invented language or an English dub hide the foreign speech."""
     sparse = long_track()  # 3 a minute
     assert verify_mod.judge_long(sparse, None, fit_for(sparse, []), []).review
     dense = long_track(every=4.0)
-    reference = sorted(
-        dense
-        + [S.Cue(c.start + 1, c.end + 1, f"other words {i}") for i, c in enumerate(dense * 3)],
-        key=lambda c: c.start,
-    )
-    report = verify_mod.judge_long(dense, reference, fit_for(dense, []), [])
+    report = verify_mod.judge_long(sparse, reference_for(sparse), fit_for(sparse, []), [])
     assert report.review and "only 25% of the full subtitle" in report.reason
+    # As dense as dialogue: the same lines worded differently, not a part of it.
+    assert not verify_mod.judge_long(dense, reference_for(dense), fit_for(dense, []), []).review
 
 
 def test_dense_track_partly_on_foreign_speech_is_mislabelled():
@@ -347,8 +350,8 @@ def test_long_track_skips_the_reference_sync(tmp_path, monkeypatch):
     monkeypatch.setattr(sources, "synced_reference", must_not_run)
     monkeypatch.setattr(sources, "film_regions", lambda *a: ([], {"ok": True, "duration": 7200.0}))
     decision, details = service.verify_forced(str(forced), "/x.mkv", str(tmp_path), ml_url="x")
-    # None of its lines are in the full subtitle, so the audio alone doesn't remove it.
-    assert decision.verdict == Verdict.MISLABELLED and decision.review
+    # 30 cues a minute and no foreign speech: a full subtitle, whatever its wording.
+    assert decision.verdict == Verdict.MISLABELLED and not decision.review
     assert len(details["ribbon"]["cues"]) == 250
 
 

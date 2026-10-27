@@ -132,7 +132,13 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
                 not_foreign = f"{n} cues, only {share:.0%} of them on foreign speech"
         if not_foreign:
             reason = f"{not_foreign}: a full subtitle labelled as forced"
-            if text_share is not None and text_share < MISLABEL_REFERENCE_SHARE:
+            # (A dense track that matches little of the full subtitle is the same
+            # dialogue worded differently, not a part of it: Rogue Nation, 2798 cues.)
+            if (
+                text_share is not None
+                and text_share < MISLABEL_REFERENCE_SHARE
+                and per_minute < DENSE_DIALOGUE_DENSITY
+            ):
                 return mislabelled(
                     f"{reason} (but only {text_share:.0%} of the full subtitle: review)", True
                 )
