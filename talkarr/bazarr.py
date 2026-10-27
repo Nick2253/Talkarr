@@ -48,7 +48,8 @@ def enabled():
 
 
 class Bazarr:
-    def __init__(self, url=None, api_key=None, timeout=30):
+    # Bazarr answers slowly while it searches providers (after blacklisting, say).
+    def __init__(self, url=None, api_key=None, timeout=90):
         self.url = (url or Config.BAZARR_URL).rstrip("/")
         self.headers = {"X-API-KEY": api_key or Config.BAZARR_API_KEY}
         self.timeout = timeout

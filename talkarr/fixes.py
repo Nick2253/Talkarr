@@ -253,6 +253,14 @@ class ApplyError(Exception):
     pass
 
 
+class RetryLater(ApplyError):
+    """A service the fix needs (Bazarr) didn't answer: the fix stays proposed and the
+    automatic modes try it again after ``RETRY_SECONDS``."""
+
+
+RETRY_SECONDS = 15 * 60
+
+
 def apply(job, proposal, indices, overrides=None):
     """Apply ``proposal["fixes"][i]`` for each index. Returns ``(fixes, backup)``.
 
@@ -278,6 +286,10 @@ def apply(job, proposal, indices, overrides=None):
         try:
             _apply_one(fix, job, path, overrides or {}, backup)
             fix["state"], fix["error"] = APPLIED, None
+            fix.pop("retry_after", None)
+        except RetryLater as e:
+            fix["error"], fix["retry_after"] = str(e), time.time() + RETRY_SECONDS
+            break
         except Exception as e:  # noqa: BLE001 - recorded on the fix, shown in the UI
             fix["state"], fix["error"] = FAILED, str(e)
             break
@@ -350,8 +362,8 @@ def _remove(path, job, backup):
                 )
         except bazarr.BazarrError as e:
             # Deleting it anyway would let Bazarr fetch the same file again.
-            raise ApplyError(
-                f"couldn't reach Bazarr to blacklist it, so it was left in place ({e})"
+            raise RetryLater(
+                f"couldn't reach Bazarr to blacklist it, so it was left in place for now ({e})"
             ) from e
         os.remove(path)
         return "Bazarr has no record of downloading it, so it was deleted directly."

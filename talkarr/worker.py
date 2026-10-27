@@ -54,6 +54,7 @@ def process_pending_jobs():
             update_job_status(job["id"], JobStatus.FAILED, str(e))
         _catch_up(CATCH_UP_SECONDS)
     _catch_up(CATCH_UP_SECONDS)
+    review.retry_step()
 
 
 def _catch_up(seconds, clock=time.monotonic):
@@ -119,7 +120,11 @@ def _process_job(job):
     auto = fixes.auto_indices(mode, proposed)
     if auto:
         log.info("Job %s: %s applies %d of %d fixes", job["id"], mode, len(auto), len(proposed))
-        review.apply_job(job["id"], auto, by=mode)
+        try:
+            review.apply_job(job["id"], auto, by=mode)
+        except review.ReviewError as e:
+            # Checked fine; the fix failed (shown on it) or waits for a retry.
+            log.warning("Job %s: %s", job["id"], e)
     log.info("Job %s: %d fixes proposed", job["id"], len(proposed))
 
 

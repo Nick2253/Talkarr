@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.parse
 
 import pytest
@@ -208,12 +209,27 @@ def test_remove_with_backup_and_no_bazarr_record(removal):
 
 
 @responses.activate
-def test_bazarr_unreachable_leaves_the_file(removal):
+def test_bazarr_unreachable_leaves_the_file_and_retries_later(removal, monkeypatch):
+    from talkarr import settings
+
     sub = removal(backup=False)
+    settings.set_mode("full_auto")
     responses.get(f"{URL}/api/movies", status=502)
-    with pytest.raises(review.ReviewError, match="couldn't reach Bazarr"):
+    with pytest.raises(review.ReviewError, match="couldn't reach Bazarr.*retry"):
         review.apply_job("j")
     assert sub.exists()
+    [fix] = json.loads(db.get_job("j")["proposal"])["fixes"]
+    assert fix["state"] == "proposed" and fix["retry_after"] > time.time()
+    assert db.get_job("j")["outcome"] == "pending"
+    db.update_job_status("j", "completed")
+
+    assert review.waiting_for("full_auto") == []  # not due yet: catch-up leaves it
+    later = time.time() + fixes.RETRY_SECONDS + 1
+    review._last_retry_scan[0] = 0.0
+    responses.replace(responses.GET, f"{URL}/api/movies", json={"data": []})
+    responses.get(f"{URL}/api/series", json={"data": []})
+    assert review.retry_step(clock=lambda: later)
+    assert not sub.exists() and db.get_job("j")["outcome"] == "applied"
 
 
 def test_remove_without_bazarr_just_deletes(removal, monkeypatch):

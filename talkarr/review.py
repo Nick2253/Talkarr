@@ -53,9 +53,13 @@ def apply_job(job_id, indices=None, overrides=None, by="you"):
     history.append(backup)
     db.update_job_applied(job_id, proposal, fixes.outcome(new_fixes), history)
     failed = [f for f in new_fixes if f["state"] == fixes.FAILED]
+    later = [i for i in indices if new_fixes[i].get("retry_after") and new_fixes[i]["error"]]
     log.info("Job %s: applied by %s (%s)", job_id, by, fixes.outcome(new_fixes))
     if failed:
         raise ReviewError(f"{failed[0]['summary']} failed: {failed[0]['error']}")
+    if later:
+        fix = new_fixes[later[0]]
+        raise ReviewError(f"{fix['summary']}: {fix['error']}; the automatic modes retry it")
     return new_fixes
 
 
@@ -95,6 +99,31 @@ def recheck_job(job_id):
     db.update_job_status(job_id, JobStatus.PENDING)
 
 
+# --- retrying ---------------------------------------------------------------------------
+# A fix left waiting because Bazarr didn't answer is tried again once its time comes.
+
+RETRY_SCAN_SECONDS = 300
+_last_retry_scan = [0.0]
+
+
+def retry_step(clock=time.time):
+    """Apply one subtitle whose automatic fix is due a retry; at most every few minutes."""
+    mode = settings.get_mode()
+    now = clock()
+    if mode == settings.Mode.MANUAL or now - _last_retry_scan[0] < RETRY_SCAN_SECONDS:
+        return False
+    _last_retry_scan[0] = now
+    for job, indices in waiting_for(mode, now):
+        due = json.loads(job["proposal"])["fixes"]
+        if any("retry_after" in due[i] for i in indices):
+            try:
+                apply_job(job["id"], indices, by=mode)
+            except ReviewError as e:
+                log.warning("Retry: job %s not applied: %s", job["id"], e)
+            return True
+    return False
+
+
 # --- catching up -----------------------------------------------------------------------
 # A mode only acts on subtitles checked after it is chosen. Catching up applies what it
 # would have applied to the fixes already waiting, one subtitle at a time.
@@ -104,13 +133,20 @@ CATCH_UP = "catch_up"  # settings key: set while a catch-up runs
 REMOVAL_PACE_SECONDS = 10.0
 
 
-def waiting_for(mode):
-    """``[(job, indices)]``: checked subtitles with fixes ``mode`` applies on its own."""
+def waiting_for(mode, now=None):
+    """``[(job, indices)]``: checked subtitles with fixes ``mode`` applies on its own
+    (not counting fixes waiting for their retry time)."""
+    now = time.time() if now is None else now
     found = []
     for job in db.get_jobs(outcome=["pending", "partial"], limit=1_000_000):
         if job["status"] != JobStatus.COMPLETED or not job.get("proposal"):
             continue
-        indices = fixes.auto_indices(mode, json.loads(job["proposal"])["fixes"])
+        proposed = json.loads(job["proposal"])["fixes"]
+        indices = [
+            i
+            for i in fixes.auto_indices(mode, proposed)
+            if proposed[i].get("retry_after", 0) <= now
+        ]
         if indices:
             found.append((job, indices))
     return sorted(found, key=lambda item: (item[0]["created_at"], item[0]["id"]))  # oldest first
