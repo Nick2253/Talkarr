@@ -116,7 +116,21 @@ def build(subtitle_path, sub_type, clean=None, sync=None, decision=None, mods=No
                     )
                 )
 
-    if sync is not None and sub_type != SubType.FORCED and getattr(sync, "success", False):
+    from . import bazarr
+
+    synced = sync is not None and sub_type != SubType.FORCED and getattr(sync, "success", False)
+    if synced and getattr(sync, "mismatch", False) and bazarr.enabled():
+        # Out of sync everywhere and no one correction fits: ask Bazarr for another.
+        fixes.append(
+            _fix(
+                "remove",
+                "Replace: doesn't match this video",
+                CONFIDENT,
+                {"backup": True, "replace": True, "parts": getattr(sync, "parts", None)},
+            )
+        )
+        synced = False
+    if synced:
         offset = sync.offset or 0.0
         framerate = getattr(sync, "framerate", None) or 1.0
         if abs(offset) >= Config.SYNC_MIN_OFFSET or changes_framerate(framerate):
@@ -335,14 +349,17 @@ def _apply_one(fix, job, path, overrides, backup):
         os.rename(path, target)
         backup["renamed_to"] = target
     elif kind == "remove":
-        fix["result"] = _remove(path, job, backup)
+        fix["result"] = _remove(path, job, backup, replace=fix["params"].get("replace", False))
         backup["removed"] = True
     else:
         raise ApplyError(f"unknown fix: {kind}")
 
 
-def _remove(path, job, backup):
-    """Delete a subtitle; through Bazarr's blacklist when Bazarr downloaded it."""
+def _remove(path, job, backup, replace=False):
+    """Delete a subtitle; through Bazarr's blacklist when Bazarr downloaded it.
+
+    ``replace``: only through Bazarr, which then searches for another; a subtitle it
+    didn't download is left in place rather than lost."""
     from . import bazarr
     from .media import find_video_for_subtitle
 
@@ -371,8 +388,14 @@ def _remove(path, job, backup):
             raise RetryLater(
                 f"couldn't reach Bazarr to blacklist it, so it was left in place for now ({e})"
             ) from e
+        if replace:
+            raise ApplyError(
+                "Bazarr didn't download it, so nothing would replace it; left in place"
+            )
         os.remove(path)
         return "Bazarr has no record of downloading it, so it was deleted directly."
+    if replace:
+        raise ApplyError("replacing needs Bazarr (BAZARR_BLACKLIST); left in place")
     os.remove(path)
     return "Deleted."
 

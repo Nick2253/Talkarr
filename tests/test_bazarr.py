@@ -273,3 +273,39 @@ def test_remove_already_blacklisted_deletes_directly(removal):
     applied = review.apply_job("j")
     assert not sub.exists()
     assert applied[0]["result"].startswith("Already blacklisted in Bazarr (subsource #10092957)")
+
+
+def replacement(removal):
+    sub = removal(backup=True)
+    proposal = json.loads(db.get_job("j")["proposal"])
+    proposal["fixes"][0]["params"]["replace"] = True
+    db.update_job_proposal("j", proposal, "pending")
+    return sub
+
+
+@responses.activate
+def test_replace_goes_through_bazarr(removal):
+    sub = replacement(removal)
+    responses.get(
+        f"{URL}/api/movies",
+        json={
+            "data": [
+                {"radarrId": 280, "path": bazarr_paths(sub.with_name("Man on Fire (2004).mkv"))}
+            ]
+        },
+    )
+    responses.get(f"{URL}/api/movies/history", json={"data": [history_row(bazarr_paths(sub))]})
+    responses.post(f"{URL}/api/movies/blacklist")
+    applied = review.apply_job("j")
+    assert applied[0]["result"].startswith("Blacklisted in Bazarr")
+    assert not sub.exists()
+
+
+@responses.activate
+def test_replace_leaves_a_subtitle_bazarr_did_not_download(removal):
+    sub = replacement(removal)
+    responses.get(f"{URL}/api/movies", json={"data": []})
+    responses.get(f"{URL}/api/series", json={"data": []})
+    with pytest.raises(review.ReviewError, match="nothing would replace it"):
+        review.apply_job("j")
+    assert sub.exists()

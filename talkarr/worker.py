@@ -30,7 +30,14 @@ from .db import (
 )
 from .forced.service import verify_forced
 from .media import find_video_for_subtitle
-from .sync import measure_parts, parts_confirm, parts_offset, run_ffsubsync
+from .sync import (
+    measure_parts,
+    parts_confirm,
+    parts_mismatch,
+    parts_offset,
+    parts_scale,
+    run_ffsubsync,
+)
 from .validator import validate
 
 log = logging.getLogger(__name__)
@@ -177,11 +184,17 @@ def _trial_sync(subtitle_path, media_path):
             )
             result.confirmed = parts_confirm(parts, scale)
             result.parts = [round(m, 3) for _, _, m in parts or ()]
-            shared = parts_offset(parts) if result.confirmed is False else None
-            if shared is not None:
-                # ffsubsync's correction is wrong, but the thirds agree on one offset
-                # (about 0: the subtitle is already in sync).
-                result.framerate, result.offset, result.confirmed = 1.0, shared, True
+            if result.confirmed is False:
+                # ffsubsync's correction is wrong. The thirds may agree on one offset
+                # (about 0: already in sync) or a standard framerate change; if they're
+                # all out and agree on nothing, the subtitle doesn't match the video.
+                shared = parts_offset(parts)
+                fitted = (1.0, shared) if shared is not None else parts_scale(parts)
+                if fitted is not None:
+                    result.framerate, result.offset = fitted
+                    result.confirmed = result.measured = True
+                else:
+                    result.mismatch = parts_mismatch(parts)
         return result
     finally:
         for path in (out, link, speech):

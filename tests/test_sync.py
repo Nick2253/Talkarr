@@ -235,3 +235,13 @@ def test_parts_offset():
     assert sync.parts_offset([(0, 0, -2.0), (0, 0, -2.2), (0, 0, -1.9)]) == -2.033
     assert sync.parts_offset([(0, 0, 0.0), (0, 0, 0.7), (0, 0, 0.1)]) is None
     assert sync.parts_offset(None) is None
+
+
+def test_parts_scale_and_mismatch():
+    t = (300.0, 900.0, 1500.0)
+    linear = [(x, 0, (24 / 25 - 1) * x + 3.0) for x in t]
+    assert sync.parts_scale(linear) == (pytest.approx(24 / 25), pytest.approx(3.0, abs=1e-3))
+    scattered = [(x, 0, m) for x, m in zip(t, (9.0, -40.0, 3.0), strict=True)]
+    assert sync.parts_scale(scattered) is None
+    assert sync.parts_mismatch(scattered)
+    assert not sync.parts_mismatch([(x, 0, m) for x, m in zip(t, (0.2, -40.0, 3.0), strict=True)])

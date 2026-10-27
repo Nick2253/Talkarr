@@ -129,6 +129,8 @@ T = (300.0, 900.0, 1500.0)  # the thirds' mean cue starts
         ((9.0, -40.0, 3.0), [("Sync 23.976 → 24 fps, +1.25 s", "uncertain")]),  # scatter
         ((0.05, -0.1, 0.0), []),  # ffsubsync's guess is noise: already in sync
         ((-2.0, -2.2, -1.9), [("Sync −2.03 s", "confident")]),  # the offset they share
+        # a standard framerate change ffsubsync didn't pick: 25 -> 24 fits all three
+        (tuple(-0.04 * t + 3.0 for t in T), [("Sync 25 → 24 fps, +3.00 s", "confident")]),
     ],
 )
 def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, measured, expected):
@@ -150,6 +152,32 @@ def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, measu
     if fixes:
         assert fixes[0]["params"]["parts"] == list(measured)
     assert os.listdir(os.path.join(Config.CACHE_DIR, "tmp")) == []
+
+
+@pytest.mark.parametrize(
+    ("measured", "expected"),
+    [
+        ((9.0, -40.0, 3.0), [("Replace: doesn't match this video", "confident", "remove")]),
+        (
+            (0.2, -40.0, 3.0),
+            [("Sync 23.976 → 24 fps, +1.25 s", "uncertain", "sync")],
+        ),  # in sync once
+    ],
+)
+def test_a_subtitle_out_everywhere_is_replaced_through_bazarr(
+    tmp_path, trial_sync, monkeypatch, measured, expected
+):
+    monkeypatch.setattr(Config, "BAZARR_API_KEY", "k")
+    trial_sync(framerate=24 / 23.976)
+    monkeypatch.setattr(
+        worker, "measure_parts", lambda *a: [(t, 0.0, m) for t, m in zip(T, measured, strict=True)]
+    )
+    regular(tmp_path)
+    worker.process_pending_jobs()
+    _, fixes = job()
+    assert [(f["summary"], f["tier"], f["kind"]) for f in fixes] == expected
+    if fixes[0]["kind"] == "remove":
+        assert fixes[0]["params"] == {"backup": True, "replace": True, "parts": list(measured)}
 
 
 def test_low_confidence_sync_is_uncertain_and_waits(tmp_path, trial_sync):

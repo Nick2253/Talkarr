@@ -256,6 +256,33 @@ def parts_confirm(parts, scale):
     return abs(implied - scale) <= DRIFT_TOLERANCE * abs(scale - 1.0)
 
 
+# Every third this far out on its own, with no one correction between them: the
+# subtitle doesn't match the video (another release or cut).
+MISMATCH_MIN_OFFSET = 1.0
+
+
+def parts_scale(parts):
+    """``(scale, offset)`` for a standard framerate change all three thirds fit (each
+    within CONFIRM_MAX_RESIDUAL) when ffsubsync guessed a different one; else None."""
+    from .forced.fit import SCALES
+
+    if not parts:
+        return None
+    best = None
+    for scale in SCALES:
+        if not changes_framerate(scale):
+            continue
+        offset = sum(m - (scale - 1.0) * t for t, _, m in parts) / len(parts)
+        worst = max(abs((scale - 1.0) * t + offset - m) for t, _, m in parts)
+        if worst <= CONFIRM_MAX_RESIDUAL and (best is None or worst < best[0]):
+            best = (worst, scale, round(offset, 3))
+    return best and best[1:]
+
+
+def parts_mismatch(parts):
+    return bool(parts) and all(abs(m) > MISMATCH_MIN_OFFSET for _, _, m in parts)
+
+
 def parts_offset(parts):
     """The offset the thirds share, if they agree with each other; else ``None``."""
     measured = [m for _, _, m in parts or ()]
