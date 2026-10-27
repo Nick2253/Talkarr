@@ -84,9 +84,10 @@ def test_find_download_for_a_movie():
 
 
 @responses.activate
-def test_already_blacklisted_or_missing_records_are_skipped():
+def test_an_already_blacklisted_download_is_marked():
     movies([history_row(MOVIE_SUB, blacklisted=True)])
-    assert bazarr.Bazarr().find_download(MOVIE_SUB.replace("/data", "/media"), None) is None
+    d = bazarr.Bazarr().find_download(MOVIE_SUB.replace("/data", "/media"), None)
+    assert d.blacklisted and d.subs_id == "10092957"
 
 
 @responses.activate
@@ -252,3 +253,23 @@ def test_ui_for_a_removal_without_backup(client, removal, monkeypatch):
     job = html.unescape(client.get("/job/j").data.decode())
     assert "You removed the file; no backup kept." in job
     assert "Restore the original" not in job
+
+
+@responses.activate
+def test_remove_already_blacklisted_deletes_directly(removal):
+    sub = removal(backup=False)
+    responses.get(
+        f"{URL}/api/movies",
+        json={
+            "data": [
+                {"radarrId": 280, "path": bazarr_paths(sub.with_name("Man on Fire (2004).mkv"))}
+            ]
+        },
+    )
+    responses.get(
+        f"{URL}/api/movies/history",
+        json={"data": [history_row(bazarr_paths(sub), blacklisted=True)]},
+    )
+    applied = review.apply_job("j")
+    assert not sub.exists()
+    assert applied[0]["result"].startswith("Already blacklisted in Bazarr (subsource #10092957)")

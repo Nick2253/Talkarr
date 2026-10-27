@@ -351,6 +351,12 @@ def _remove(path, job, backup):
         video = job.get("media_path") or find_video_for_subtitle(path)
         try:
             download = client.find_download(path, video)
+            if download is not None and download.blacklisted:
+                os.remove(path)
+                return (
+                    f"Already blacklisted in Bazarr ({download.provider} #{download.subs_id}), "
+                    "so it was deleted directly."
+                )
             if download is not None:
                 client.blacklist(download)
                 if os.path.exists(path):  # Bazarr said yes but left it; finish the job

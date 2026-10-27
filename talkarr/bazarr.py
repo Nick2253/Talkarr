@@ -41,6 +41,7 @@ class Download:
     subs_id: str
     language: str  # code2, as Bazarr's blacklist expects
     subtitles_path: str  # Bazarr's path
+    blacklisted: bool = False  # already: Bazarr won't fetch this file again
 
 
 def enabled():
@@ -93,12 +94,18 @@ class Bazarr:
         for row in sorted(rows, key=lambda r: r.get("timestamp") or 0, reverse=True):
             if row.get("subtitles_path") != bazarr_sub:
                 continue
-            if not (row.get("provider") and row.get("subs_id")) or row.get("blacklisted"):
+            if not (row.get("provider") and row.get("subs_id")):
                 continue
             language = row.get("language") or {}
             code2 = language.get("code2") if isinstance(language, dict) else str(language)
             return Download(
-                kind, ids, row["provider"], str(row["subs_id"]), code2 or "en", bazarr_sub
+                kind,
+                ids,
+                row["provider"],
+                str(row["subs_id"]),
+                code2 or "en",
+                bazarr_sub,
+                bool(row.get("blacklisted")),
             )
         return None
 
