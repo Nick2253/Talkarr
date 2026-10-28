@@ -107,6 +107,37 @@ def test_find_download_for_an_episode():
 
 
 @responses.activate
+def test_find_download_for_a_double_episode():
+    """The Office S04E03-E04: one video, two episodes; Bazarr filed it under E03."""
+    responses.get(f"{URL}/api/movies", json={"data": []})
+    responses.get(
+        f"{URL}/api/series", json={"data": [{"sonarrSeriesId": 7, "path": "/data/tv/Office"}]}
+    )
+    video = "/data/tv/Office/Season 04/Office - S04E03-E04.mkv"
+    sub = "/data/tv/Office/Season 04/Office - S04E03-E04.en.hi.srt"
+    responses.get(
+        f"{URL}/api/episodes",
+        json={
+            "data": [{"sonarrEpisodeId": 96, "path": video}, {"sonarrEpisodeId": 95, "path": video}]
+        },
+    )
+    responses.get(
+        f"{URL}/api/episodes/history",
+        json={"data": []},
+        match=[responses.matchers.query_param_matcher({"episodeid": "96", "length": "-1"})],
+    )
+    responses.get(
+        f"{URL}/api/episodes/history",
+        json={"data": [history_row(sub, "abc")]},
+        match=[responses.matchers.query_param_matcher({"episodeid": "95", "length": "-1"})],
+    )
+    d = bazarr.Bazarr().find_download(
+        sub.replace("/data", "/media"), video.replace("/data", "/media")
+    )
+    assert d.ids == {"seriesid": 7, "episodeid": 95} and d.subs_id == "abc"
+
+
+@responses.activate
 def test_unknown_media_and_http_errors():
     responses.get(f"{URL}/api/movies", json={"data": []})
     responses.get(f"{URL}/api/series", json={"data": []})

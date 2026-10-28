@@ -85,13 +85,18 @@ class Bazarr:
         media = self._find_media(bazarr_video, os.path.dirname(bazarr_sub))
         if media is None:
             return None
-        kind, ids = media
-        if kind == "movie":
-            rows = self._get("movies/history", {"radarrid": ids["radarrid"], "length": -1})
-        else:
-            rows = self._get("episodes/history", {"episodeid": ids["episodeid"], "length": -1})
-        rows = rows.get("data", rows) if isinstance(rows, dict) else rows
-        for row in sorted(rows, key=lambda r: r.get("timestamp") or 0, reverse=True):
+        kind, candidates = media
+        rows = []
+        # A multi-episode file (S02E19-E20) is one video for several episodes; Bazarr
+        # files the download under one of them.
+        for ids in candidates:
+            if kind == "movie":
+                got = self._get("movies/history", {"radarrid": ids["radarrid"], "length": -1})
+            else:
+                got = self._get("episodes/history", {"episodeid": ids["episodeid"], "length": -1})
+            got = got.get("data", got) if isinstance(got, dict) else got
+            rows += [(ids, row) for row in got]
+        for ids, row in sorted(rows, key=lambda r: r[1].get("timestamp") or 0, reverse=True):
             if row.get("subtitles_path") != bazarr_sub:
                 continue
             if not (row.get("provider") and row.get("subs_id")):
@@ -114,18 +119,19 @@ class Bazarr:
         for m in movies:
             path = m.get("path") or ""
             if path == bazarr_video or os.path.dirname(path) == bazarr_dir:
-                return "movie", {"radarrid": m["radarrId"]}
+                return "movie", [{"radarrid": m["radarrId"]}]
         series = self._cached("series", lambda: self._data(self._get("series", {"length": -1})))
         for s in series:
             root = (s.get("path") or "").rstrip("/")
             if root and (bazarr_dir == root or bazarr_dir.startswith(root + "/")):
                 episodes = self._data(self._get("episodes", {"seriesid[]": s["sonarrSeriesId"]}))
-                for e in episodes:
-                    if e.get("path") == bazarr_video:
-                        return "episode", {
-                            "seriesid": s["sonarrSeriesId"],
-                            "episodeid": e["sonarrEpisodeId"],
-                        }
+                found = [
+                    {"seriesid": s["sonarrSeriesId"], "episodeid": e["sonarrEpisodeId"]}
+                    for e in episodes
+                    if e.get("path") == bazarr_video
+                ]
+                if found:
+                    return "episode", found
         return None
 
     @staticmethod
