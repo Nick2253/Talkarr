@@ -263,9 +263,10 @@ MISMATCH_MIN_OFFSET = 1.0
 MISMATCH_MIN_PARTS = 2
 
 
-def parts_scale(parts):
+def parts_scale(parts, near=None):
     """``(scale, offset)`` for a standard framerate change all three thirds fit (each
-    within CONFIRM_MAX_RESIDUAL) when ffsubsync guessed a different one; else None."""
+    within CONFIRM_MAX_RESIDUAL), the offset fitted to them; else None. ``near``: only
+    the standard ratio a rounded scale stands for (ffsubsync logs 0.959 for 23.976/25)."""
     from .forced.fit import SCALES
 
     if not parts:
@@ -274,11 +275,20 @@ def parts_scale(parts):
     for scale in SCALES:
         if not changes_framerate(scale):
             continue
+        if near is not None and abs(scale - near) > FRAMERATE_CHANGE:
+            continue
         offset = sum(m - (scale - 1.0) * t for t, _, m in parts) / len(parts)
         worst = max(abs((scale - 1.0) * t + offset - m) for t, _, m in parts)
         if worst <= CONFIRM_MAX_RESIDUAL and (best is None or worst < best[0]):
             best = (worst, scale, round(offset, 3))
     return best and best[1:]
+
+
+def parts_in_sync(parts):
+    """Two of the three thirds within MISMATCH_MIN_OFFSET of zero: the subtitle is
+    already in sync for most of its length, whatever ffsubsync proposed."""
+    inside = sum(abs(m) <= MISMATCH_MIN_OFFSET for _, _, m in parts or ())
+    return inside >= MISMATCH_MIN_PARTS
 
 
 def parts_mismatch(parts):

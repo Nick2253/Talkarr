@@ -247,3 +247,13 @@ def test_parts_scale_and_mismatch():
     assert sync.parts_mismatch([(x, 0, m) for x, m in zip(t, (0.2, -40.0, 3.0), strict=True)])
     assert not sync.parts_mismatch([(x, 0, m) for x, m in zip(t, (0.2, -40.0, 0.5), strict=True)])
     assert not sync.parts_mismatch(None)
+
+
+def test_parts_in_sync_and_scale_near_a_rounded_one():
+    t = (300.0, 900.0, 1500.0)
+    assert sync.parts_in_sync([(x, 0, m) for x, m in zip(t, (0.2, -40.0, 0.9), strict=True)])
+    assert not sync.parts_in_sync([(x, 0, m) for x, m in zip(t, (0.2, -40.0, 3.0), strict=True)])
+    exact = 23.976 / 24
+    parts = [(x, 0, (exact - 1) * x - 1.3) for x in t]
+    assert sync.parts_scale(parts, near=0.999) == (pytest.approx(exact), pytest.approx(-1.3))
+    assert sync.parts_scale(parts, near=0.959) is None

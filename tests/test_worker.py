@@ -33,6 +33,7 @@ def trial_sync(monkeypatch):
                 offset=offset,
                 confidence=confidence,
                 framerate=framerate,
+                measured=True,
                 error=None if success else "no audio",
             )
 
@@ -162,10 +163,7 @@ def test_every_sync_is_checked_in_parts(tmp_path, trial_sync, monkeypatch, measu
             (0.2, -40.0, 3.0),
             [("Replace: doesn't match this video", "confident", "remove")],
         ),  # in sync for one third only
-        (
-            (0.2, -40.0, 0.5),
-            [("Sync 23.976 → 24 fps, +1.25 s", "uncertain", "sync")],
-        ),  # in sync for two thirds: kept
+        ((0.2, -40.0, 0.5), []),  # in sync for two thirds: kept, nothing to do
     ],
 )
 def test_a_subtitle_out_everywhere_is_replaced_through_bazarr(
@@ -180,8 +178,35 @@ def test_a_subtitle_out_everywhere_is_replaced_through_bazarr(
     worker.process_pending_jobs()
     _, fixes = job()
     assert [(f["summary"], f["tier"], f["kind"]) for f in fixes] == expected
-    if fixes[0]["kind"] == "remove":
+    if fixes and fixes[0]["kind"] == "remove":
         assert fixes[0]["params"] == {"backup": True, "replace": True, "parts": list(measured)}
+
+
+def test_a_rounded_framerate_the_thirds_bear_out_is_made_exact(tmp_path, trial_sync, monkeypatch):
+    """DuckTales: ffsubsync logs 0.999 for 23.976/24 and its output can't be measured
+    (cue counts differ); the thirds confirm it, so the standard ratio is used."""
+    trial_sync(framerate=0.999, offset=-1.21)
+    exact = 23.976 / 24
+    monkeypatch.setattr(
+        worker,
+        "measure_parts",
+        lambda sub, ref, s, o, scratch: [(t, (s - 1) * t + o, (exact - 1) * t - 1.3) for t in T],
+    )
+    real_run = worker.run_ffsubsync
+
+    def unmeasured(*a, **k):
+        r = real_run(*a, **k)
+        r.measured = False
+        return r
+
+    monkeypatch.setattr(worker, "run_ffsubsync", unmeasured)
+    regular(tmp_path)
+    worker.process_pending_jobs()
+    _, fixes = job()
+    assert [(f["summary"], f["tier"]) for f in fixes] == [
+        ("Sync 24 → 23.976 fps, −1.30 s", "confident")
+    ]
+    assert fixes[0]["params"]["framerate"] == pytest.approx(exact)
 
 
 def test_low_confidence_sync_is_uncertain_and_waits(tmp_path, trial_sync):

@@ -31,8 +31,10 @@ from .db import (
 from .forced.service import verify_forced
 from .media import find_video_for_subtitle
 from .sync import (
+    changes_framerate,
     measure_parts,
     parts_confirm,
+    parts_in_sync,
     parts_mismatch,
     parts_offset,
     parts_scale,
@@ -184,12 +186,22 @@ def _trial_sync(subtitle_path, media_path):
             )
             result.confirmed = parts_confirm(parts, scale)
             result.parts = [round(m, 3) for _, _, m in parts or ()]
-            if result.confirmed is False:
+            if result.confirmed and not result.measured and changes_framerate(scale):
+                # The thirds bear out a framerate change ffsubsync only logged rounded:
+                # use the standard ratio it stands for, the offset fitted to the thirds.
+                exact = parts_scale(parts, near=scale)
+                if exact is not None:
+                    result.framerate, result.offset = exact
+                    result.measured = True
+            elif result.confirmed is False:
                 # ffsubsync's correction is wrong. The thirds may agree on one offset
-                # (about 0: already in sync) or a standard framerate change; if they're
-                # all out and agree on nothing, the subtitle doesn't match the video.
+                # (about 0: already in sync) or a standard framerate change; two of them
+                # in sync means it already is, near enough; two out and agreeing on
+                # nothing, the subtitle doesn't match the video.
                 shared = parts_offset(parts)
                 fitted = (1.0, shared) if shared is not None else parts_scale(parts)
+                if fitted is None and parts_in_sync(parts):
+                    fitted = (1.0, 0.0)
                 if fitted is not None:
                     result.framerate, result.offset = fitted
                     result.confirmed = result.measured = True
