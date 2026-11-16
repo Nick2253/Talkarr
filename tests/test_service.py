@@ -319,6 +319,13 @@ def test_copy_of_a_sparse_full_subtitle_waits_for_a_person():
     assert not verify_mod.verify(dense[:60], dense[:100]).review
 
 
+def test_typeset_signs_and_songs_are_not_a_full_subtitle():
+    """Fruits Basket: hundreds of stacked sign cues, 220+ a minute."""
+    stacked = long_track(n=400, every=0.1)
+    assert verify_mod.judge_long(stacked) is None
+    assert verify_mod.judge_long(stacked, None, fit_for(stacked, []), []) is None
+
+
 def test_long_track_without_evidence_waits_for_a_person():
     assert verify_mod.judge_long(long_track(every=4.0)).review
     assert verify_mod.judge_long(long_track(every=20.0)).review

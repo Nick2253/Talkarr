@@ -31,6 +31,10 @@ FULL_DIALOGUE_DENSITY = 6.0
 # language ID calls some English foreign). Foreign-language films' tracks are dense
 # too, but most of their cues sit on foreign speech (A Separation 92%, Pan's 78%).
 DENSE_DIALOGUE_DENSITY = 8.0
+# Denser than any dialogue (full subtitles measure up to ~22 a minute): stacked cues of
+# typeset signs and songs, as anime "signs & songs" forced tracks are (Fruits Basket:
+# 220-5000 a minute). Never a full subtitle.
+TYPESET_DENSITY = 40.0
 # With a reference: share of the reference's cues the "forced" sub reproduces.
 MISLABEL_REFERENCE_SHARE = 0.5
 # A usable fit must explain this share of the forced cues that found any anchor,
@@ -100,6 +104,8 @@ def judge_long(forced, reference=None, timeline_fit=None, foreign_spans=None):
     """
     n = len(forced)
     per_minute = density(forced)
+    if per_minute > TYPESET_DENSITY:
+        return None
 
     def mislabelled(reason, review):
         report = Report(Verdict.MISLABELLED, reason, n, reference_cues=len(reference or ()))
